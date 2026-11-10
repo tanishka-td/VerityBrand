@@ -1,0 +1,17 @@
+# Local dependencies and generated frontend build
+frontend/node_modules/
+frontend/dist/
+
+# Local configuration
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Editor and operating system files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local browser QA artifacts
+.playwright-mcp/
+work/

@@ -33,3 +33,7 @@ The included GitHub Actions workflow builds the frontend and publishes it to Git
 4. Copy the live address shown in the successful deployment or under **Settings → Pages**.
 
 The GitHub Pages address is created by GitHub after the first deployment; it cannot be known from this local folder. The site is a static prototype and stores work in each visitor's own browser.
+
+## Supabase handoff
+
+Supabase is not connected in this version. The web app remains a static frontend; the included Pages workflow publishes it. For the current state and the work needed to connect a Supabase backend, see [the Supabase deployment handoff](SUPABASE_HANDOFF.md).

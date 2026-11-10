@@ -1,33 +1,102 @@
 import { useEffect, useRef, useState } from 'react'
-import type { BrandProfile, Finding, ReviewDecision, ReviewSnapshot } from './types'
+import type { BrandProfile, DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from './types'
 import { analyzeDraft } from './services/reviewApi'
 import { DEMO_DRAFT, DEMO_PROFILE } from './data/demoKnowledge'
 import { Icon } from './components/Icon'
 import { EntryScreen } from './components/EntryScreen'
 import { KnowledgePage } from './components/KnowledgePage'
 import { ReviewWorkspace } from './components/ReviewWorkspace'
+import { SupabaseApp } from './components/SupabaseApp'
+import { supabase, supabaseConfigMissing } from './services/supabase'
 
 const STORAGE_KEY = 'veritybrand-workspaces-v3'
 type Section = 'entry' | 'review' | 'knowledge'
 type SavedState = Record<string, unknown> | null
 
+interface WorkspaceReviewState {
+  analysis: ReviewSnapshot | null
+  selectedId: string
+  decisions: Record<string, ReviewDecision>
+  approved: boolean
+  approvedRevisionId: string | null
+  coverageAcknowledged: boolean
+  manualReviewRequested: boolean
+  activity: string[]
+}
+
+interface InitialAppState {
+  profiles: BrandProfile[]
+  activeProfileId: string
+  returnProfileId: string
+  drafts: Record<string, string>
+  reviewStates: Record<string, WorkspaceReviewState>
+  draftRevisionsByProfile: Record<string, DraftRevision[]>
+}
+
+const emptyReviewState: WorkspaceReviewState = {
+  analysis: null,
+  selectedId: '',
+  decisions: {},
+  approved: false,
+  approvedRevisionId: null,
+  coverageAcknowledged: false,
+  manualReviewRequested: false,
+  activity: [],
+}
+
 function readSavedState(): SavedState {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as SavedState } catch { return null }
 }
 
-const saved = readSavedState()
-const initialProfiles = Array.isArray(saved?.profiles) && saved.profiles.length
-  ? saved.profiles as BrandProfile[]
-  : [{ id: 'my-brand', name: 'My brand', sources: [] }]
-const storedActiveProfileId = String(saved?.activeProfileId ?? initialProfiles[0].id)
-const initialActiveProfileId = initialProfiles.some((profile) => profile.id === storedActiveProfileId) ? storedActiveProfileId : initialProfiles[0].id
-const initialReturnProfileId = String(saved?.returnProfileId ?? initialProfiles.find((profile) => !profile.isSample)?.id ?? initialProfiles[0].id)
+function createInitialAppState(): InitialAppState {
+  const saved = readSavedState()
+  const storedProfiles = Array.isArray(saved?.profiles) && saved.profiles.length
+    ? saved.profiles as BrandProfile[]
+    : [{ id: 'my-brand', name: 'My brand', sources: [] }]
+  const profiles = [...storedProfiles.filter((profile) => profile.id !== DEMO_PROFILE.id), DEMO_PROFILE]
+  const previousActiveProfileId = String(saved?.activeProfileId ?? storedProfiles[0].id)
+  const customProfiles = profiles.filter((profile) => !profile.isSample)
+  const savedReturnProfileId = String(saved?.returnProfileId ?? '')
+  const returnProfileId = customProfiles.some((profile) => profile.id === savedReturnProfileId)
+    ? savedReturnProfileId
+    : customProfiles.some((profile) => profile.id === previousActiveProfileId)
+      ? previousActiveProfileId
+      : customProfiles[0]?.id ?? ''
+  const reviewStates = saved?.reviewStates && typeof saved.reviewStates === 'object'
+    ? { ...(saved.reviewStates as Record<string, WorkspaceReviewState>) }
+    : {}
+
+  // Migrate the prior single active review state before Daybreak becomes active.
+  if (previousActiveProfileId !== DEMO_PROFILE.id && !reviewStates[previousActiveProfileId]) {
+    reviewStates[previousActiveProfileId] = {
+      analysis: saved?.analysis as ReviewSnapshot | null ?? null,
+      selectedId: String(saved?.selectedId ?? ''),
+      decisions: saved?.decisions as Record<string, ReviewDecision> ?? {},
+      approved: Boolean(saved?.approved),
+      approvedRevisionId: saved?.approvedRevisionId as string | null ?? null,
+      coverageAcknowledged: Boolean(saved?.coverageAcknowledged),
+      manualReviewRequested: Boolean(saved?.manualReviewRequested),
+      activity: saved?.activity as string[] ?? [],
+    }
+  }
+
+  return {
+    profiles,
+    activeProfileId: DEMO_PROFILE.id,
+    returnProfileId,
+    drafts: { ...(saved?.drafts as Record<string, string> ?? {}), [DEMO_PROFILE.id]: DEMO_DRAFT },
+    reviewStates: { ...reviewStates, [DEMO_PROFILE.id]: emptyReviewState },
+    draftRevisionsByProfile: saved?.draftRevisionsByProfile && typeof saved.draftRevisionsByProfile === 'object'
+      ? saved.draftRevisionsByProfile as Record<string, DraftRevision[]>
+      : {},
+  }
+}
 
 function replacementFor(finding: Finding): string | null {
   if (finding.category === 'promotion') {
     const source = finding.evidence[0]?.text ?? ''
-    const terms = source.match(/(\d{1,3}%\s*(?:off|discount)).*?(?:through|until)\s+([A-Za-z]+\s+\d{1,2})/i)
-    return terms ? `${terms[1]} through ${terms[2]}` : null
+    const terms = source.match(/(\d{1,3}%\s*(?:off|discount)).*?(?:through|until)\s+([A-Za-z]+\s+\d{1,2})(,?\s+\d{4})?/i)
+    return terms ? `${terms[1]} through ${terms[2]}${terms[3] ? `, ${terms[3].trim().replace(/^,\s*/, '')}` : ''}` : null
   }
   if (finding.category === 'product_fact') {
     const values = finding.explanation.match(/draft says (\d+)\s?(ml|mg); the approved source says (\d+)\s?(?:ml|mg)/i)
@@ -36,29 +105,41 @@ function replacementFor(finding: Finding): string | null {
   return null
 }
 
-function App() {
-  const [section, setSection] = useState<Section>('entry')
-  const [profiles, setProfiles] = useState<BrandProfile[]>(initialProfiles)
-  const [activeProfileId, setActiveProfileId] = useState(initialActiveProfileId)
-  const [returnProfileId, setReturnProfileId] = useState(initialReturnProfileId)
+function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?: boolean; onExitDemo?: () => void }) {
+  const [initialState] = useState(createInitialAppState)
+  const [section, setSection] = useState<Section>('review')
+  const [profiles, setProfiles] = useState<BrandProfile[]>(initialState.profiles)
+  const [activeProfileId, setActiveProfileId] = useState(initialState.activeProfileId)
+  const [returnProfileId, setReturnProfileId] = useState(initialState.returnProfileId)
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0]
-  const [drafts, setDrafts] = useState<Record<string, string>>(() => saved?.drafts as Record<string, string> ?? {})
+  const [drafts, setDrafts] = useState<Record<string, string>>(initialState.drafts)
   const draft = drafts[activeProfile.id] ?? ''
-  const [analysis, setAnalysis] = useState<ReviewSnapshot | null>(() => saved?.analysis as ReviewSnapshot | null ?? null)
-  const [selectedId, setSelectedId] = useState(() => String(saved?.selectedId ?? ''))
+  const [reviewStates, setReviewStates] = useState(initialState.reviewStates)
+  const [draftRevisionsByProfile, setDraftRevisionsByProfile] = useState(initialState.draftRevisionsByProfile)
+  const revisions = draftRevisionsByProfile[activeProfile.id] ?? []
+  const [analysis, setAnalysis] = useState<ReviewSnapshot | null>(emptyReviewState.analysis)
+  const [selectedId, setSelectedId] = useState(emptyReviewState.selectedId)
   const [isChecking, setIsChecking] = useState(false)
-  const [decisions, setDecisions] = useState<Record<string, ReviewDecision>>(() => saved?.decisions as Record<string, ReviewDecision> ?? {})
-  const [approved, setApproved] = useState(() => Boolean(saved?.approved))
-  const [coverageAcknowledged, setCoverageAcknowledged] = useState(() => Boolean(saved?.coverageAcknowledged))
-  const [manualReviewRequested, setManualReviewRequested] = useState(() => Boolean(saved?.manualReviewRequested))
+  const [decisions, setDecisions] = useState<Record<string, ReviewDecision>>(emptyReviewState.decisions)
+  const [approved, setApproved] = useState(emptyReviewState.approved)
+  const [approvedRevisionId, setApprovedRevisionId] = useState<string | null>(emptyReviewState.approvedRevisionId)
+  const [coverageAcknowledged, setCoverageAcknowledged] = useState(emptyReviewState.coverageAcknowledged)
+  const [manualReviewRequested, setManualReviewRequested] = useState(emptyReviewState.manualReviewRequested)
   const [exceptionNote, setExceptionNote] = useState('')
   const [notice, setNotice] = useState('')
-  const [activity, setActivity] = useState<string[]>(() => saved?.activity as string[] ?? [])
+  const [activity, setActivity] = useState<string[]>(emptyReviewState.activity)
   const analysisRequestId = useRef(0)
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, activeProfileId, returnProfileId, drafts, analysis, selectedId, decisions, approved, coverageAcknowledged, manualReviewRequested, activity }))
-  }, [profiles, activeProfileId, returnProfileId, drafts, analysis, selectedId, decisions, approved, coverageAcknowledged, manualReviewRequested, activity])
+    if (configuredDemo) return
+    const currentReviewState: WorkspaceReviewState = { analysis, selectedId, decisions, approved, approvedRevisionId, coverageAcknowledged, manualReviewRequested, activity }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      profiles, activeProfileId, returnProfileId, drafts,
+      draftRevisionsByProfile,
+      reviewStates: { ...reviewStates, [activeProfile.id]: currentReviewState },
+      analysis, selectedId, decisions, approved, approvedRevisionId, coverageAcknowledged, manualReviewRequested, activity,
+    }))
+  }, [configuredDemo, profiles, activeProfileId, activeProfile.id, returnProfileId, drafts, draftRevisionsByProfile, reviewStates, analysis, selectedId, decisions, approved, approvedRevisionId, coverageAcknowledged, manualReviewRequested, activity])
 
   const selectedFinding = analysis?.findings.find((finding) => finding.id === selectedId) ?? analysis?.findings[0] ?? null
   const selectedDecision = selectedFinding ? decisions[selectedFinding.id] ?? 'not_sent' : 'not_sent'
@@ -68,6 +149,7 @@ function App() {
   function setDraft(value: string) {
     setDrafts((current) => ({ ...current, [activeProfile.id]: value }))
     setApproved(false)
+    setApprovedRevisionId(null)
     setCoverageAcknowledged(false)
     setManualReviewRequested(false)
   }
@@ -82,10 +164,42 @@ function App() {
     setSelectedId('')
     setDecisions({})
     setApproved(false)
+    setApprovedRevisionId(null)
     setCoverageAcknowledged(false)
     setManualReviewRequested(false)
     setExceptionNote('')
     setActivity([])
+  }
+
+  function captureCurrentReviewState(): WorkspaceReviewState {
+    return { analysis, selectedId, decisions, approved, approvedRevisionId, coverageAcknowledged, manualReviewRequested, activity }
+  }
+
+  function restoreReviewState(state: WorkspaceReviewState | undefined) {
+    const next = state ?? emptyReviewState
+    setAnalysis(next.analysis)
+    setSelectedId(next.selectedId)
+    setDecisions(next.decisions)
+    setApproved(next.approved)
+    setApprovedRevisionId(next.approvedRevisionId ?? null)
+    setCoverageAcknowledged(next.coverageAcknowledged)
+    setManualReviewRequested(next.manualReviewRequested)
+    setActivity(next.activity)
+  }
+
+  function recordCheckedRevision(profileId: string, content: string, snapshot: ReviewSnapshot) {
+    setDraftRevisionsByProfile((current) => {
+      const previous = current[profileId] ?? []
+      const last = previous[previous.length - 1]
+      if (last?.content === content && last.analysis._reviewedSources === snapshot._reviewedSources) return current
+      const revision: DraftRevision = {
+        id: `${profileId}-revision-${Date.now().toString(36)}`,
+        content,
+        checked_at: new Date().toISOString(),
+        analysis: snapshot,
+      }
+      return { ...current, [profileId]: [...previous, revision] }
+    })
   }
 
   async function handleReview() {
@@ -95,6 +209,7 @@ function App() {
     setNotice('')
     setDecisions({})
     setApproved(false)
+    setApprovedRevisionId(null)
     setCoverageAcknowledged(false)
     setManualReviewRequested(false)
     try {
@@ -107,6 +222,7 @@ function App() {
         _reviewedSources: sourceDigest,
       }
       setAnalysis(snapshot)
+      recordCheckedRevision(activeProfile.id, draft, snapshot)
       setSelectedId(snapshot.findings.find((finding) => finding.requires_human_review)?.id ?? snapshot.findings[0]?.id ?? '')
       addActivity(`Draft checked against ${activeProfile.name} sources`)
       setNotice(snapshot.findings.length === 0
@@ -125,15 +241,17 @@ function App() {
   function handleProfileChange(id: string) {
     analysisRequestId.current += 1
     setIsChecking(false)
+    setReviewStates((current) => ({ ...current, [activeProfile.id]: captureCurrentReviewState() }))
     setActiveProfileId(id)
     setSection('review')
-    clearReviewState()
+    restoreReviewState(reviewStates[id])
     setNotice('Workspace changed. Check the draft against this brand’s sources.')
   }
 
   function handleNewProfile() {
     analysisRequestId.current += 1
     setIsChecking(false)
+    setReviewStates((current) => ({ ...current, [activeProfile.id]: captureCurrentReviewState() }))
     const id = `brand-${Date.now().toString(36)}`
     const profile: BrandProfile = { id, name: 'New brand', sources: [] }
     setProfiles((items) => [...items, profile])
@@ -147,6 +265,7 @@ function App() {
   async function handleUseSample() {
     const requestId = ++analysisRequestId.current
     if (!activeProfile.isSample) setReturnProfileId(activeProfile.id)
+    setReviewStates((current) => ({ ...current, [activeProfile.id]: captureCurrentReviewState() }))
     setProfiles((items) => [...items.filter((profile) => profile.id !== DEMO_PROFILE.id), DEMO_PROFILE])
     setDrafts((items) => ({ ...items, [DEMO_PROFILE.id]: DEMO_DRAFT }))
     setActiveProfileId(DEMO_PROFILE.id)
@@ -164,6 +283,7 @@ function App() {
         _reviewedSources: JSON.stringify(DEMO_PROFILE.sources),
       }
       setAnalysis(snapshot)
+      recordCheckedRevision(DEMO_PROFILE.id, DEMO_DRAFT, snapshot)
       setSelectedId(snapshot.findings.find((finding) => finding.requires_human_review)?.id ?? snapshot.findings[0]?.id ?? '')
       addActivity('Daybreak sample review opened')
       setNotice('Sample review ready. Start with the offer mismatch and its approved source.')
@@ -236,7 +356,11 @@ function App() {
   }
 
   function handleApprove() {
+    const latestRevision = revisions[revisions.length - 1]
+    const unresolved = analysis?.findings.some((finding) => finding.requires_human_review && decisions[finding.id] !== 'exception_approved')
+    if (!analysis || dirty || analysis.findings.length === 0 || unresolved || !coverageAcknowledged || latestRevision?.content !== draft) return
     setApproved(true)
+    setApprovedRevisionId(latestRevision.id)
     addActivity('Human reviewer approved the final version')
     setNotice('Final version approved. The decision is saved in this browser.')
   }
@@ -248,11 +372,18 @@ function App() {
   }
 
   function handleApproveManualReview() {
-    if (!manualReviewRequested) return
+    const latestRevision = revisions[revisions.length - 1]
+    if (!manualReviewRequested || !analysis || dirty || analysis.findings.length !== 0 || latestRevision?.content !== draft) return
     setApproved(true)
+    setApprovedRevisionId(latestRevision.id)
     addActivity('Human reviewer approved the unchecked draft')
     setNotice('Human-only approval recorded. The checker did not verify these claims.')
   }
+
+  useEffect(() => {
+    // StrictMode may invoke this twice in development; request IDs discard the stale result.
+    void handleReview()
+  }, [])
 
   const isSampleWorkspace = Boolean(activeProfile.isSample)
   const sidebarMode = isSampleWorkspace ? 'sample' : section === 'knowledge' ? 'steward' : 'review'
@@ -289,7 +420,8 @@ function App() {
         {isSampleWorkspace ? <button type="button" className="sidebar-sample sidebar-return" onClick={handleExitSample} title={`Return to ${returnProfileName}`}><Icon name="arrow" size={15} /><span>Back to {returnProfileName}</span></button> : <button type="button" className="sidebar-sample" onClick={() => { void handleUseSample() }} title="Open the Daybreak sample review"><Icon name="spark" size={15} /><span>Try Daybreak sample</span></button>}
         <div className="sidebar-bottom">
           <div className="demo-status"><span className="live-dot" /><span>{activeProfile.isSample ? 'Sample profile' : 'Private workspace'}</span></div>
-          <p>Saved in this browser only.</p>
+          <p>{configuredDemo ? 'Guided sample · changes are temporary.' : 'Saved in this browser only.'}</p>
+          {configuredDemo && <button className="text-button" type="button" onClick={onExitDemo}>Back to sign in</button>}
         </div>
       </aside>
 
@@ -309,6 +441,8 @@ function App() {
             dirty={dirty}
             decision={selectedDecision}
             decisions={decisions}
+            revisions={revisions}
+            approvedRevisionId={approvedRevisionId}
             activity={activity}
             approved={approved}
             coverageAcknowledged={coverageAcknowledged}
@@ -335,6 +469,14 @@ function App() {
       </>}
     </div>
   )
+}
+
+function App() {
+  const [showDemo, setShowDemo] = useState(false)
+  if (supabase && !supabaseConfigMissing) return showDemo
+    ? <LocalDemoApp configuredDemo onExitDemo={() => setShowDemo(false)} />
+    : <SupabaseApp onTryDemo={() => setShowDemo(true)} />
+  return <LocalDemoApp />
 }
 
 export default App

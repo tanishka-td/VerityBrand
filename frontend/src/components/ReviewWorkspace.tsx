@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import type { Finding, ReviewDecision, ReviewSnapshot } from '../types'
+import type { DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from '../types'
 import { Icon } from './Icon'
 
 interface Props {
@@ -16,6 +16,8 @@ interface Props {
   dirty: boolean
   decision: ReviewDecision
   decisions: Record<string, ReviewDecision>
+  revisions: DraftRevision[]
+  approvedRevisionId: string | null
   activity: string[]
   approved: boolean
   coverageAcknowledged: boolean
@@ -36,6 +38,9 @@ interface Props {
   onApproveManualReview: () => void
   onOpenSources: () => void
   onLoadSample: () => void
+  canEditContent?: boolean
+  canMakeDecisions?: boolean
+  isCloud?: boolean
 }
 
 function StatusBadge({ status }: { status: Finding['status'] }) {
@@ -51,7 +56,8 @@ function formatSourceDate(value: string) {
 function correctionPreview(finding: Finding): string | null {
   if (finding.category === 'promotion') {
     const terms = finding.evidence[0]?.text.match(/(\d{1,3}%\s*(?:off|discount)).*?(?:through|until)\s+([A-Za-z]+\s+\d{1,2})/i)
-    return terms ? `${terms[1]} through ${terms[2]}` : null
+    const approvedDate = finding.evidence[0]?.text.match(/(?:through|until)\s+[A-Za-z]+\s+\d{1,2}(,?\s+\d{4})?/i)?.[1]
+    return terms ? `${terms[1]} through ${terms[2]}${approvedDate ? `, ${approvedDate.trim().replace(/^,\s*/, '')}` : ''}` : null
   }
   if (finding.category === 'product_fact') {
     const values = finding.explanation.match(/draft says (\d+)\s?(ml|mg); the approved source says (\d+)\s?(?:ml|mg)/i)
@@ -65,15 +71,17 @@ export function ReviewWorkspace(props: Props) {
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const {
     brandName, isSample, sourceCount, draft, setDraft, analysis, selectedFinding, onSelectFinding, isChecking, dirty, decision,
-    activity, decisions, approved, coverageAcknowledged, manualReviewRequested, onCoverageAcknowledged, exceptionNote, setExceptionNote,
+    activity, decisions, revisions, approvedRevisionId, approved, coverageAcknowledged, manualReviewRequested, onCoverageAcknowledged, exceptionNote, setExceptionNote,
     notice, onDismissNotice, onReview, onRequestReview, onConfirmReview,
     onRequestEvidence, onApproveException, onApplyWording, onApprove, onRequestManualReview, onApproveManualReview, onOpenSources, onLoadSample,
+    canEditContent = true, canMakeDecisions = true, isCloud = false,
   } = props
   const unresolvedCount = analysis?.findings.filter((finding) => finding.requires_human_review && decisions[finding.id] !== 'exception_approved').length ?? 0
   const noCoverage = Boolean(analysis && analysis.findings.length === 0)
   const allClear = Boolean(analysis && !dirty && !noCoverage && unresolvedCount === 0)
   const selectedSource = selectedFinding?.evidence[0]
   const correction = selectedFinding ? correctionPreview(selectedFinding) : null
+  const approvedRevisionNumber = revisions.findIndex((revision) => revision.id === approvedRevisionId) + 1
   const displayStatus = approved ? 'Approved' : dirty ? 'Draft changed' : noCoverage ? manualReviewRequested ? 'Manual review open' : 'Needs a closer look' : allClear ? 'Ready for your sign-off' : analysis ? 'Waiting on a person' : 'Ready to check'
 
   async function importCopy(event: ChangeEvent<HTMLInputElement>) {
@@ -136,7 +144,7 @@ export function ReviewWorkspace(props: Props) {
         <div className="editor-paper">
           <div className="editor-meta"><span><Icon name="file" size={15} />{brandName.toUpperCase()} / WORKING COPY</span><div className="editor-meta-tools"><span>TEXT</span><label className="file-import" htmlFor="copy-upload"><input id="copy-upload" type="file" accept=".txt,.md,text/plain,text/markdown" onChange={importCopy} /><Icon name="external" size={12} />Import .txt / .md</label></div></div>
           <label className="visually-hidden" htmlFor="draft-input">Edit campaign caption</label>
-          <textarea id="draft-input" ref={editorRef} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Paste your campaign copy or claim here…" spellCheck />
+          <textarea id="draft-input" ref={editorRef} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Paste your campaign copy or claim here…" spellCheck readOnly={!canEditContent} />
           <div className="editor-footer"><span>{draft.trim() ? draft.trim().split(/\s+/).length : 0} words</span><span>{draft.length} characters</span><span className={`saved-indicator ${dirty ? 'is-dirty' : ''}`}><span />{dirty ? 'Needs a fresh check' : analysis ? 'This version was checked' : 'Waiting for first check'}</span></div>
         </div>
         {importMessage && <div className="import-message" role="status">{importMessage}</div>}
@@ -155,13 +163,22 @@ export function ReviewWorkspace(props: Props) {
         </div>
         <div className="checker-note"><Icon name="info" size={14} /><span>{isSample ? 'Sample rules only. Unmatched wording still needs a human read.' : 'This early-access checker is conservative. Unmatched claims stay with a human.'}</span></div>
         <div className="draft-actions">
-          <button className="primary-button" type="button" onClick={onReview} disabled={isChecking || !draft.trim()}>
+          <button className="primary-button" type="button" onClick={onReview} disabled={!canEditContent || isChecking || !draft.trim()}>
             {isChecking ? <span className="spinner" /> : <Icon name="spark" size={17} />}
             {isChecking ? 'Comparing the copy…' : analysis && !dirty ? 'Run the check again' : 'Check against sources'}
             {!isChecking && <Icon name="arrow" size={16} />}
           </button>
-          <span className="action-note">Your text stays in this browser demo.</span>
+          <span className="action-note">{isCloud ? 'Your draft is saved in this private workspace.' : 'Your text stays in this browser demo.'}</span>
         </div>
+        <details className="activity-log revision-history">
+          <summary><span>Draft revision history</span><span>{revisions.length} checked version{revisions.length === 1 ? '' : 's'} <Icon name="chevron" size={14} /></span></summary>
+          <ol>{revisions.map((revision, index) => <li key={revision.id}>
+            <strong>Version {String(index + 1).padStart(2, '0')}</strong>
+            {revision.id === approvedRevisionId && <span className="revision-approved-label">Final authorized approval</span>}
+            <p>{revision.content}</p>
+            <small>{new Date(revision.checked_at).toLocaleString()} · {revision.analysis.overall_status === 'ready_for_final_approval' ? 'Ready for human sign-off' : 'Human review required'}</small>
+          </li>)}</ol>
+        </details>
       </section>
 
       <section className="findings-panel" aria-labelledby="findings-title" aria-live="polite">
@@ -177,8 +194,8 @@ export function ReviewWorkspace(props: Props) {
           {!sourceCount && <button type="button" className="empty-primary-link" onClick={onOpenSources}>Build your source cabinet <Icon name="arrow" size={14}/></button>}
           <button type="button" className="sample-try-link" onClick={onLoadSample}><Icon name="spark" size={13}/>{isSample ? 'Reload the Daybreak example' : 'Try the Daybreak Coffee example'} <Icon name="arrow" size={13}/></button>
         </div> : noCoverage ? <div className="coverage-gap"><span className="coverage-icon">?</span><div><strong>{dirty ? 'Your draft or brand sources changed since the last check.' : 'No checkable claims were found.'}</strong><p>That does not mean the copy is safe. The checker cannot clear a draft it could not assess. Read each claim against an approved source or try a manual review.</p><span className="coverage-action">No automatic approval is available when there are no matching checks.</span>
-          {!manualReviewRequested && !approved && <button type="button" className="manual-review-button" onClick={onRequestManualReview}><Icon name="send" size={15} />Send the full draft for manual review</button>}
-          {manualReviewRequested && !approved && <div className="manual-review-card"><span className="reviewer-label">HUMAN REVIEW · DEMO MODE</span><strong>Read the entire draft before deciding.</strong><p>This records a human-only decision. It does not claim that the checker verified the copy.</p><button type="button" className="approve-button" onClick={onApproveManualReview}>Approve after manual review <Icon name="arrow" size={15} /></button></div>}
+          {!manualReviewRequested && !approved && canMakeDecisions && <button type="button" className="manual-review-button" onClick={onRequestManualReview}><Icon name="send" size={15} />Send the full draft for manual review</button>}
+          {manualReviewRequested && !approved && canMakeDecisions && <div className="manual-review-card"><span className="reviewer-label">HUMAN REVIEW</span><strong>Read the entire draft before deciding.</strong><p>This records a human-only decision. It does not claim that the checker verified the copy.</p><button type="button" className="approve-button" onClick={onApproveManualReview}>Approve after manual review <Icon name="arrow" size={15} /></button></div>}
           {approved && <div className="approved-banner manual-approved"><span className="approved-icon"><Icon name="check" size={17} /></span><div><strong>Human-only approval recorded</strong><span>The draft has no automated verification findings.</span></div><span className="approved-seal">SIGNED</span></div>}
         </div></div> : <>
           <div className="finding-list" role="list" aria-label="Checks from this review">
@@ -186,8 +203,8 @@ export function ReviewWorkspace(props: Props) {
               const resolved = finding.requires_human_review && decisions[finding.id] === 'exception_approved'
               return <div role="listitem" key={finding.id}>
                 <button className={`finding-row ${selectedFinding?.id === finding.id ? 'finding-selected' : ''} ${resolved ? 'finding-resolved' : ''}`} type="button" onClick={() => onSelectFinding(finding.id)} aria-pressed={selectedFinding?.id === finding.id}>
-                  <span className={`finding-symbol symbol-${resolved ? 'supported' : finding.status}`}>{resolved ? <Icon name="check" size={15} /> : finding.status === 'supported' ? <Icon name="check" size={15} /> : <Icon name="alert" size={15} />}</span>
-                  <span className="finding-copy"><span className="finding-topline"><span className="finding-number">CHECK {String(index + 1).padStart(2, '0')}</span><StatusBadge status={resolved ? 'supported' : finding.status} /></span><span className="finding-claim">{finding.claim}</span></span>
+                  <span className={`finding-symbol symbol-${finding.status}`}>{finding.status === 'supported' ? <Icon name="check" size={15} /> : <Icon name="alert" size={15} />}</span>
+                  <span className="finding-copy"><span className="finding-topline"><span className="finding-number">CHECK {String(index + 1).padStart(2, '0')}</span><StatusBadge status={finding.status} />{resolved && <span className="exception-status-badge">Exception approved</span>}</span><span className="finding-claim">{finding.claim}</span></span>
                   <Icon name="chevron" size={16} />
                 </button>
               </div>
@@ -202,14 +219,14 @@ export function ReviewWorkspace(props: Props) {
             <div className="explanation"><span>WHY THIS NEEDS ATTENTION</span><p>{selectedFinding.explanation}</p></div>
             {selectedFinding.suggested_action && <div className="suggested-action"><span>RECOMMENDED NEXT STEP</span><p>{selectedFinding.suggested_action}</p></div>}
 
-            {selectedFinding.requires_human_review && !approved && decision !== 'exception_approved' && <div className="human-review-block">
+            {selectedFinding.requires_human_review && !approved && decision !== 'exception_approved' && canMakeDecisions && <div className="human-review-block">
               {decision === 'not_sent' && <>
                 <div className="review-owner"><span className="owner-avatar">{selectedFinding.reviewer_role?.split(' ').map((part) => part[0]).join('').slice(0, 2) ?? 'BR'}</span><div><strong>Send to {selectedFinding.reviewer_role ?? 'Brand Manager'}</strong><span>This person owns the source behind this claim.</span></div></div>
                 <button className="secondary-button" type="button" onClick={onRequestReview}><Icon name="send" size={16} />Send claim for review <Icon name="arrow" size={14} /></button>
               </>}
               {decision === 'sent' && <>
                 <div className="handoff-status"><span className="handoff-pulse" /><div><strong>Owner response · demo mode</strong><span>Choose a sample decision to complete the handoff.</span></div></div>
-                <div className="reviewer-preview"><span className="reviewer-label">{(selectedFinding.reviewer_role ?? 'BRAND OWNER').toUpperCase()} RESPONSE</span><p>Does the approved source still apply, or should this claim be treated as an exception?</p><div className="reviewer-options"><button type="button" className="confirm-button" onClick={onConfirmReview}><Icon name="check" size={15} />Source is current</button><button type="button" className="evidence-request-button" onClick={onRequestEvidence}>Request more evidence</button></div>
+                <div className="reviewer-preview"><span className="reviewer-label">{(selectedFinding.reviewer_role ?? 'BRAND OWNER').toUpperCase()} RESPONSE</span><p>{selectedFinding.reviewer_question ?? 'Does the approved source still apply, or should this claim be treated as an exception?'}</p><div className="reviewer-options"><button type="button" className="confirm-button" onClick={onConfirmReview}><Icon name="check" size={15} />Source is current</button><button type="button" className="evidence-request-button" onClick={onRequestEvidence}>Request more evidence</button></div>
                   <div className="exception-field"><label htmlFor="exception-note">Or record an approved exception</label><div><input id="exception-note" value={exceptionNote} onChange={(event) => setExceptionNote(event.target.value)} placeholder="Add a short reason" /><button type="button" className="exception-button" disabled={!exceptionNote.trim()} onClick={onApproveException}>Record</button></div></div>
                 </div>
               </>}
@@ -219,16 +236,16 @@ export function ReviewWorkspace(props: Props) {
               </>}
               {decision === 'evidence_requested' && <div className="confirmed-note"><Icon name="clock" size={16} /><div><strong>More evidence requested</strong><span>This finding stays open until the claim is checked again with a source.</span></div></div>}
             </div>}
-            {selectedFinding.requires_human_review && decision === 'exception_approved' && <div className="exception-approved"><Icon name="check" size={16} /><div><strong>Owner approved this exception</strong><span>The decision is saved in this browser demo. Final sign-off is still yours.</span></div></div>}
+            {selectedFinding.requires_human_review && decision === 'exception_approved' && <div className="exception-approved"><Icon name="check" size={16} /><div><strong>Owner approved this exception</strong><span>{isCloud ? 'This reviewer decision is saved. Final sign-off is still required.' : 'The decision is saved in this browser demo. Final sign-off is still yours.'}</span></div></div>}
             {selectedFinding.status === 'supported' && <div className="supported-note"><Icon name="check" size={15} /><span>This value matches the approved source shown above.</span></div>}
           </article>}
 
           {allClear && !approved && <div className="approval-panel">
             <div className="approval-copy"><Icon name="seal" size={19} /><div><strong>One last human read</strong><span>These matched checks pass. Please review anything outside the sample rules before sign-off.</span></div></div>
             <label className="coverage-check"><input type="checkbox" checked={coverageAcknowledged} onChange={(event) => onCoverageAcknowledged(event.target.checked)} /><span>I reviewed the remaining copy and am comfortable approving this version.</span></label>
-            <button className="approve-button" type="button" disabled={!coverageAcknowledged} onClick={onApprove}>Approve this version <Icon name="arrow" size={15} /></button>
+            {canMakeDecisions && <button className="approve-button" type="button" disabled={!coverageAcknowledged} onClick={onApprove}>Approve this version <Icon name="arrow" size={15} /></button>}
           </div>}
-          {approved && <div className="approved-banner"><span className="approved-icon"><Icon name="check" size={17} /></span><div><strong>Version approved</strong><span>Decision and activity are saved in this browser demo.</span></div><span className="approved-seal">SIGNED</span></div>}
+          {approved && <div className="approved-banner"><span className="approved-icon"><Icon name="check" size={17} /></span><div><strong>Version approved</strong><span>{approvedRevisionNumber ? `Final authorized approval recorded for Version ${String(approvedRevisionNumber).padStart(2, '0')}.` : isCloud ? 'Final approval is saved in this workspace.' : 'Decision and activity are saved in this browser demo.'}</span></div><span className="approved-seal">SIGNED</span></div>}
           {activity.length > 0 && <details className="activity-log"><summary><span>Decision trail</span><span>{activity.length} event{activity.length === 1 ? '' : 's'} <Icon name="chevron" size={14} /></span></summary><ol>{activity.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol></details>}
         </>}
       </section>

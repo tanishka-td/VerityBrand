@@ -28,6 +28,7 @@ export interface Finding {
   evidence: EvidenceSource[]
   suggested_action: string
   reviewer_role: string | null
+  reviewer_question?: string
   requires_human_review: boolean
 }
 
@@ -45,6 +46,13 @@ export type ReviewSnapshot = AnalysisResult & {
   _reviewedContent: string
   _reviewedProfileId: string
   _reviewedSources: string
+}
+
+export interface DraftRevision {
+  id: string
+  content: string
+  checked_at: string
+  analysis: ReviewSnapshot
 }
 
 export type ReviewDecision = 'not_sent' | 'sent' | 'confirmed' | 'evidence_requested' | 'exception_approved'

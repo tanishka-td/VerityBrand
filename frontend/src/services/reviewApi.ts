@@ -25,6 +25,7 @@ function makeFinding(
   evidence: EvidenceSource[],
   suggestedAction = '',
   reviewerRole: string | null = null,
+  reviewerQuestion = '',
 ): Finding {
   return {
     id,
@@ -36,6 +37,7 @@ function makeFinding(
     evidence,
     suggested_action: suggestedAction,
     reviewer_role: reviewerRole,
+    ...(reviewerQuestion ? { reviewer_question: reviewerQuestion } : {}),
     requires_human_review: status !== 'supported',
   }
 }
@@ -85,6 +87,11 @@ function analyzeInBrowser(content: string, profile: BrandProfile = DEMO_PROFILE)
     const percentageMatches = !percentage || Number(percentage[1]) === 10
     const dateMatches = !statedDate || statedDate.getTime() === expiry.getTime()
     const status: FindingStatus = expired ? 'outdated' : percentageMatches && dateMatches ? 'supported' : 'contradicted'
+    const draftTerms = `${percentage ? `${percentage[1]}% off` : 'promotion'}${endDate ? ` through ${endDate[1]} ${endDate[2]}${endDate[3] ? `, ${endDate[3]}` : ''}` : ''}`
+    const approvedTerms = offerSource.text.replace(/\.$/, '')
+    const reviewerQuestion = status === 'supported'
+      ? ''
+      : `The approved offer is ${approvedTerms}, but this draft says ${draftTerms}. Is the approved offer still current, or is there updated approval for the draft terms?`
     findings.push(makeFinding(
       'offer-current', claim, 'promotion', status,
       expired
@@ -95,6 +102,7 @@ function analyzeInBrowser(content: string, profile: BrandProfile = DEMO_PROFILE)
       [offerSource],
       status === 'supported' ? '' : 'Ask the Offer Manager to confirm the current offer, then use the approved wording.',
       status === 'supported' ? null : 'Offer Manager',
+      reviewerQuestion,
     ))
   }
 

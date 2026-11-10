@@ -9,6 +9,8 @@ interface Props {
   onBack: () => void
   onSaveProfile: (profile: BrandProfile) => void
   onLoadSample: () => void
+  isCloud?: boolean
+  canEdit?: boolean
 }
 
 const emptySource = { title: '', text: '', owner: '', kind: 'Product fact', valid_from: '', valid_through: '' }
@@ -26,7 +28,7 @@ function sourceStatus(source: EvidenceSource) {
   return 'Current'
 }
 
-export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: Props) {
+export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample, isCloud = false, canEdit = true }: Props) {
   const [brandName, setBrandName] = useState(profile.name)
   const [form, setForm] = useState(emptySource)
   const [formOpen, setFormOpen] = useState(profile.sources.length === 0)
@@ -35,6 +37,7 @@ export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: 
   useEffect(() => { setBrandName(profile.name); setFormOpen(profile.sources.length === 0); setEditingSourceId(null); setForm(emptySource); setMessage('') }, [profile.id, profile.name, profile.sources.length])
 
   function saveBrandName() {
+    if (!canEdit) { setMessage('You have read-only access to this workspace.'); return }
     const nextName = brandName.trim()
     if (!nextName) { setMessage('Give this workspace a name before saving.'); return }
     onSaveProfile({ ...profile, name: nextName })
@@ -43,6 +46,7 @@ export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: 
 
   function addSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!canEdit) { setMessage('You do not have permission to change approved sources.'); return }
     const title = form.title.trim()
     const text = form.text.trim()
     if (!title || !text) { setMessage('Add a title and approved wording to save this source.'); return }
@@ -73,6 +77,7 @@ export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: 
   }
 
   function removeSource(sourceId: string) {
+    if (!canEdit) { setMessage('You do not have permission to remove approved sources.'); return }
     onSaveProfile({ ...profile, sources: profile.sources.filter((source) => source.source_id !== sourceId) })
     setMessage('Source removed. Existing review results need to be checked again.')
     if (editingSourceId === sourceId) { setEditingSourceId(null); setForm(emptySource) }
@@ -103,7 +108,7 @@ export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: 
 
     <section className="brand-profile-card" aria-label="Brand workspace details">
       <div className="profile-monogram">{brandName.trim().slice(0, 1).toUpperCase() || 'B'}</div>
-      <div className="profile-name-field"><label htmlFor="brand-name">Brand or organization</label><input id="brand-name" value={brandName} onChange={(event) => setBrandName(event.target.value)} onBlur={saveBrandName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveBrandName() } }} placeholder="e.g. Northstar Skincare" /><span>This name stays in your browser workspace.</span></div>
+      <div className="profile-name-field"><label htmlFor="brand-name">Brand or organization</label><input id="brand-name" value={brandName} readOnly={!canEdit} onChange={(event) => setBrandName(event.target.value)} onBlur={saveBrandName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveBrandName() } }} placeholder="e.g. Northstar Skincare" /><span>{isCloud ? 'Workspace data is shared with authorized members.' : 'This name stays in your browser workspace.'}</span></div>
       <div className="profile-actions"><button type="button" className="profile-save-button" onClick={saveBrandName}>Save name</button><button type="button" className="sample-link" onClick={onLoadSample}>Try the Daybreak example <Icon name="arrow" size={14} /></button></div>
     </section>
 
@@ -134,7 +139,7 @@ export function KnowledgePage({ profile, onBack, onSaveProfile, onLoadSample }: 
         })}
       </>}
       {message && <p className="knowledge-message" role="status">{message}</p>}
-      <div className="knowledge-footnote"><Icon name="info" size={16}/><span>Local early-access profile. Uploads and reviewer decisions are not shared with a team or sent to a server.</span></div>
+      <div className="knowledge-footnote"><Icon name="info" size={16}/><span>{isCloud ? 'Approved references are stored in your Supabase workspace.' : 'Local early-access profile. Uploads and reviewer decisions are not shared with a team or sent to a server.'}</span></div>
     </section>
   </div>
 }

@@ -5,6 +5,7 @@ import { supabase } from '../services/supabase'
 import { analyzeDraft } from '../services/reviewApi'
 import { createInitialOwnerMembership } from '../services/workspaceBootstrap'
 import type { BrandProfile, DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from '../types'
+import { Icon } from './Icon'
 import { KnowledgePage } from './KnowledgePage'
 import { ReviewWorkspace } from './ReviewWorkspace'
 
@@ -12,7 +13,9 @@ type Member = { workspace_id: string; user_id: string; member_role: 'owner' | 'e
 type WorkspaceRow = { id: string; name: string }
 type DecisionRow = { finding_id: string; decision: Exclude<ReviewDecision, 'not_sent'>; note: string | null }
 
-function AuthPanel({ onTryDemo }: { onTryDemo: () => void }) {
+type WorkspaceSection = 'review' | 'knowledge'
+
+function AuthPanel({ initialSection, onTryDemo, onExit }: { initialSection: WorkspaceSection; onTryDemo: () => void; onExit: () => void }) {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -32,8 +35,9 @@ function AuthPanel({ onTryDemo }: { onTryDemo: () => void }) {
   }
 
   return <main className="auth-shell"><section className="auth-card">
-    <p className="eyebrow">VERITYBRAND · PROTOTYPE</p><h1>{mode === 'sign-in' ? 'Welcome back' : 'Create your account'}</h1>
-    <p>Sign in to access your shared brand workspace.</p>
+    <p className="eyebrow">VERITYBRAND · {initialSection === 'review' ? 'CREATOR & REVIEWER' : 'BRAND STEWARD'}</p>
+    <h1>{mode === 'sign-in' ? initialSection === 'review' ? 'Sign in to review content' : 'Sign in to manage sources' : 'Create your account'}</h1>
+    <p>{initialSection === 'review' ? 'Open your shared review desk and continue your team’s draft work.' : 'Open your shared source cabinet and maintain approved brand references.'}</p>
     <form onSubmit={submit}><label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
       <label>Password<input type="password" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} minLength={6} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       <button className="primary-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'sign-in' ? 'Sign in' : 'Create account'}</button>
@@ -41,10 +45,11 @@ function AuthPanel({ onTryDemo }: { onTryDemo: () => void }) {
     {message && <p role="status">{message}</p>}
     <button className="text-button" type="button" onClick={() => { setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in'); setMessage('') }}>{mode === 'sign-in' ? 'Need an account? Sign up' : 'Already registered? Sign in'}</button>
     <button className="text-button" type="button" onClick={onTryDemo}>Try the Daybreak sample</button>
+    <button className="text-button" type="button" onClick={onExit}>Choose a starting point</button>
   </section></main>
 }
 
-function CloudWorkspace({ session, member, workspace, onSignOut }: { session: Session; member: Member; workspace: WorkspaceRow; onSignOut: () => void }) {
+function CloudWorkspace({ session, member, workspace, initialSection, onSignOut, onExit, onTryDemo }: { session: Session; member: Member; workspace: WorkspaceRow; initialSection: WorkspaceSection; onSignOut: () => void; onExit: () => void; onTryDemo: () => void }) {
   const db = supabase!
   const [profile, setProfile] = useState<BrandProfile>({ id: workspace.id, name: workspace.name, sources: [] })
   const [draftId, setDraftId] = useState<string | null>(null)
@@ -59,7 +64,7 @@ function CloudWorkspace({ session, member, workspace, onSignOut }: { session: Se
   const [activity, setActivity] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [exceptionNote, setExceptionNote] = useState('')
-  const [section, setSection] = useState<'review' | 'knowledge'>('review')
+  const [section, setSection] = useState<WorkspaceSection>(initialSection)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -192,19 +197,30 @@ function CloudWorkspace({ session, member, workspace, onSignOut }: { session: Se
 
   const selectedFinding = analysis?.findings.find(f => f.id === selectedId) ?? analysis?.findings[0] ?? null
   const dirty = Boolean(analysis && (analysis._reviewedContent !== draft || analysis._reviewedSources !== JSON.stringify(profile.sources)))
+  const sidebarMode = section === 'knowledge' ? 'steward' : 'review'
   if (loading) return <main className="auth-shell"><p role="status">Loading your workspace…</p></main>
 
-  return <div className="app-shell"><aside className="sidebar"><button className="brand-lockup brand-home-button" type="button" onClick={() => setSection('review')}>VerityBrand</button>
-    <div className="workspace-switcher"><strong>{workspace.name}</strong><small>{member.member_role} · {profile.sources.length} approved sources</small></div>
-    <nav className="primary-nav"><button className="nav-item" onClick={() => setSection('review')}>Content review</button><button className="nav-item" onClick={() => setSection('knowledge')}>Approved sources</button></nav>
-    <div className="sidebar-bottom"><span>{session.user.email}</span><button className="text-button" onClick={onSignOut}>Sign out</button><button className="text-button" onClick={() => void load()}>Refresh workspace</button></div>
+  return <div className="app-shell"><aside className="sidebar"><button className="brand-lockup brand-home-button" type="button" title="Choose a starting point" onClick={onExit}>VerityBrand</button>
+    <div className="workspace-switcher"><span className="workspace-avatar">{workspace.name.slice(0, 1).toUpperCase()}</span><div className="workspace-name"><strong>{workspace.name}</strong><small>{member.member_role} · {profile.sources.length} approved source{profile.sources.length === 1 ? '' : 's'}</small></div></div>
+    <div className={`sidebar-role-card sidebar-role-${sidebarMode}`}>
+      <div className="sidebar-role-eyebrow"><Icon name={sidebarMode === 'steward' ? 'library' : 'review'} size={14} />{sidebarMode === 'steward' ? 'BRAND STEWARD' : 'CREATOR & REVIEWER'}</div>
+      <strong>{sidebarMode === 'steward' ? 'Source cabinet' : 'Review desk'}</strong>
+      <span>{sidebarMode === 'steward' ? `${profile.sources.length} approved reference${profile.sources.length === 1 ? '' : 's'} to maintain.` : 'Check campaign claims and route questions.'}</span>
+    </div>
+    <nav className="primary-nav"><span className="nav-caption">{sidebarMode === 'steward' ? 'STEWARD TOOLS' : 'CREATOR WORKSPACE'}</span>
+      {section === 'review'
+        ? <button className="nav-item is-active" onClick={() => setSection('review')} type="button" aria-current="page"><Icon name="review" size={18} /><span>Content review</span><span className="nav-pip" /></button>
+        : <button className="nav-item is-active" onClick={() => setSection('knowledge')} type="button" aria-current="page"><Icon name="library" size={18} /><span>Approved sources</span><span className="nav-pip" /></button>}
+    </nav>
+    <button type="button" className="sidebar-sample" onClick={onTryDemo} title="Open the Daybreak sample review"><Icon name="spark" size={15} /><span>Try Daybreak sample</span></button>
+    <div className="sidebar-bottom"><div className="demo-status"><span className="live-dot" /><span>Supabase workspace · {member.member_role}</span></div><p>{session.user.email}</p><button className="text-button" onClick={onSignOut}>Sign out</button><button className="text-button" onClick={() => void load()}>Refresh workspace</button></div>
   </aside><div className="app-main"><header className="topbar"><strong>{profile.name}</strong><span>{busy ? 'Saving…' : 'Supabase workspace'}</span></header><main className="main-content" id="main-content">
     {error && <p className="auth-error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-    {section === 'knowledge' ? <KnowledgePage profile={profile} onBack={() => setSection('review')} onSaveProfile={(p) => void saveProfile(p)} onLoadSample={() => setNotice('Daybreak remains available from the sign-in screen.')} isCloud canEdit={canEdit}/> : <ReviewWorkspace
-      brandName={profile.name} isSample={false} sourceCount={profile.sources.length} draft={draft} setDraft={(v) => void persistDraft(v)} analysis={analysis} selectedFinding={selectedFinding} onSelectFinding={setSelectedId} isChecking={busy} dirty={dirty} decision={selectedFinding ? decisions[selectedFinding.id] ?? 'not_sent' : 'not_sent'} decisions={decisions} revisions={revisions} approvedRevisionId={approvedRevisionId} activity={activity} approved={approved} coverageAcknowledged={coverageAcknowledged} manualReviewRequested={manualReviewRequested} onCoverageAcknowledged={setCoverageAcknowledged} exceptionNote={exceptionNote} setExceptionNote={setExceptionNote} notice="" onDismissNotice={() => setNotice('')} onReview={() => void checkDraft()} onRequestReview={() => void addDecision('sent')} onConfirmReview={() => void addDecision('confirmed')} onRequestEvidence={() => void addDecision('evidence_requested')} onApproveException={() => { if (exceptionNote.trim()) { void addDecision('exception_approved', exceptionNote.trim()); setExceptionNote('') } }} onApplyWording={() => setNotice('Apply the suggested wording, then save and recheck.')} onApprove={() => void approve('reviewed')} onRequestManualReview={() => { setManualReviewRequested(true); setNotice('Manual review requested. Check again to persist the review state.') }} onApproveManualReview={() => void approve('manual_review')} onOpenSources={() => setSection('knowledge')} onLoadSample={() => setNotice('Daybreak remains available as a local guided demo.')} canEditContent={canEdit} canMakeDecisions={canReview} isCloud/>}</main></div></div>
+    {section === 'knowledge' ? <KnowledgePage profile={profile} onBack={() => setSection('review')} onSaveProfile={(p) => void saveProfile(p)} onLoadSample={onTryDemo} isCloud canEdit={canEdit}/> : <ReviewWorkspace
+      brandName={profile.name} isSample={false} sourceCount={profile.sources.length} draft={draft} setDraft={(v) => void persistDraft(v)} analysis={analysis} selectedFinding={selectedFinding} onSelectFinding={setSelectedId} isChecking={busy} dirty={dirty} decision={selectedFinding ? decisions[selectedFinding.id] ?? 'not_sent' : 'not_sent'} decisions={decisions} revisions={revisions} approvedRevisionId={approvedRevisionId} activity={activity} approved={approved} coverageAcknowledged={coverageAcknowledged} manualReviewRequested={manualReviewRequested} onCoverageAcknowledged={setCoverageAcknowledged} exceptionNote={exceptionNote} setExceptionNote={setExceptionNote} notice="" onDismissNotice={() => setNotice('')} onReview={() => void checkDraft()} onRequestReview={() => void addDecision('sent')} onConfirmReview={() => void addDecision('confirmed')} onRequestEvidence={() => void addDecision('evidence_requested')} onApproveException={() => { if (exceptionNote.trim()) { void addDecision('exception_approved', exceptionNote.trim()); setExceptionNote('') } }} onApplyWording={() => setNotice('Apply the suggested wording, then save and recheck.')} onApprove={() => void approve('reviewed')} onRequestManualReview={() => { setManualReviewRequested(true); setNotice('Manual review requested. Check again to persist the review state.') }} onApproveManualReview={() => void approve('manual_review')} onOpenSources={() => setSection('knowledge')} onLoadSample={onTryDemo} canEditContent={canEdit} canMakeDecisions={canReview} isCloud/>}</main></div></div>
 }
 
-export function SupabaseApp({ onTryDemo }: { onTryDemo: () => void }) {
+export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSection: WorkspaceSection; onTryDemo: () => void; onExit: () => void }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [member, setMember] = useState<Member | null>(null)
@@ -261,8 +277,8 @@ export function SupabaseApp({ onTryDemo }: { onTryDemo: () => void }) {
   }, [session?.user.id])
   if (!supabase) return <main className="auth-shell"><section className="auth-card"><h1>Supabase is not configured</h1><p>Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in frontend/.env.local.</p></section></main>
   if (loading) return <main className="auth-shell"><p role="status">Loading account…</p></main>
-  if (!session) return <>{error && <p role="alert">{error}</p>}<AuthPanel onTryDemo={onTryDemo} /></>
+  if (!session) return <>{error && <p role="alert">{error}</p>}<AuthPanel initialSection={initialSection} onTryDemo={onTryDemo} onExit={onExit} /></>
   if (error) return <main className="auth-shell"><section><p role="alert">{error}</p><button onClick={() => void supabase!.auth.signOut()}>Sign out</button></section></main>
   if (!workspace || !member) return <main className="auth-shell"><p role="status">Setting up workspace…</p></main>
-  return <CloudWorkspace key={workspace.id} session={session} member={member} workspace={workspace} onSignOut={() => void supabase!.auth.signOut()} />
+  return <CloudWorkspace key={workspace.id} session={session} member={member} workspace={workspace} initialSection={initialSection} onSignOut={() => void supabase!.auth.signOut()} onExit={onExit} onTryDemo={onTryDemo} />
 }

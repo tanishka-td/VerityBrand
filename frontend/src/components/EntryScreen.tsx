@@ -6,13 +6,14 @@ interface Props {
   onReviewContent: () => void
   onManageSources: () => void
   onTrySample: () => void
+  hasCloudAuth?: boolean
 }
 
-export function EntryScreen({ profile, onReviewContent, onManageSources, onTrySample }: Props) {
+export function EntryScreen({ profile, onReviewContent, onManageSources, onTrySample, hasCloudAuth = false }: Props) {
   return <div className="entry-page">
     <header className="entry-topbar">
       <div className="brand-lockup"><span className="brand-mark"><Icon name="mark" size={27} /></span><div className="brand-wordmark"><span>VerityBrand</span><small>brand governance</small></div></div>
-      <span className="entry-local-label"><span className="live-dot" />EARLY ACCESS · NO SIGN-IN</span>
+      <span className="entry-local-label"><span className="live-dot" />{hasCloudAuth ? 'EARLY ACCESS · SIGN-IN FOR WORKSPACES' : 'EARLY ACCESS · NO SIGN-IN'}</span>
     </header>
 
     <main id="main-content" className="entry-main">
@@ -44,7 +45,7 @@ export function EntryScreen({ profile, onReviewContent, onManageSources, onTrySa
         <div className="entry-sample-copy"><span>NEW TO VERITYBRAND?</span><h2 id="sample-title">Try the Daybreak Coffee sample</h2><p>Open a preloaded review with a real mismatch to inspect.</p></div>
         <button type="button" className="entry-sample-action" onClick={onTrySample}>Try the sample review <Icon name="arrow" size={16} /></button>
       </section>
-      <p className="entry-footnote">No account needed. This prototype saves work in the current browser only.</p>
+      <p className="entry-footnote">{hasCloudAuth ? 'Sign in to use shared workspaces. The Daybreak sample is available without an account.' : 'No account needed. This prototype saves work in the current browser only.'}</p>
     </main>
   </div>
 }

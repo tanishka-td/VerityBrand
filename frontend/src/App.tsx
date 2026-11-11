@@ -107,7 +107,7 @@ function replacementFor(finding: Finding): string | null {
 
 function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?: boolean; onExitDemo?: () => void }) {
   const [initialState] = useState(createInitialAppState)
-  const [section, setSection] = useState<Section>('review')
+  const [section, setSection] = useState<Section>(configuredDemo ? 'review' : 'entry')
   const [profiles, setProfiles] = useState<BrandProfile[]>(initialState.profiles)
   const [activeProfileId, setActiveProfileId] = useState(initialState.activeProfileId)
   const [returnProfileId, setReturnProfileId] = useState(initialState.returnProfileId)
@@ -302,6 +302,16 @@ function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?:
     else handleNewProfile()
   }
 
+  function openLocalWorkspace(sectionToOpen: Exclude<Section, 'entry'>) {
+    if (activeProfile.isSample) {
+      const returnProfile = profiles.find((profile) => profile.id === returnProfileId && !profile.isSample)
+        ?? profiles.find((profile) => !profile.isSample)
+      if (returnProfile) handleProfileChange(returnProfile.id)
+      else handleNewProfile()
+    }
+    setSection(sectionToOpen)
+  }
+
   function handleSaveProfile(updated: BrandProfile) {
     setProfiles((items) => items.map((profile) => profile.id === updated.id ? updated : profile))
     setNotice('Brand profile saved in this browser.')
@@ -397,7 +407,7 @@ function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?:
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
-      {section === 'entry' ? <EntryScreen profile={activeProfile} onReviewContent={() => setSection('review')} onManageSources={() => setSection('knowledge')} onTrySample={() => { void handleUseSample() }} /> : <>
+      {section === 'entry' ? <EntryScreen profile={profiles.find((profile) => profile.id === returnProfileId && !profile.isSample) ?? activeProfile} onReviewContent={() => openLocalWorkspace('review')} onManageSources={() => openLocalWorkspace('knowledge')} onTrySample={() => { void handleUseSample() }} /> : <>
       <aside className={`sidebar sidebar-mode-${sidebarMode}`} aria-label={sidebarMode === 'sample' ? 'Daybreak sample navigation' : sidebarMode === 'steward' ? 'Brand steward navigation' : 'Creator and reviewer navigation'}>
         <button className="brand-lockup brand-home-button" type="button" title="Choose a starting point" onClick={() => setSection('entry')}><span className="brand-mark"><Icon name="mark" size={27} /></span><span className="brand-wordmark"><span>VerityBrand</span><small>brand governance</small></span></button>
         {sidebarMode !== 'review' && <div className="workspace-switcher">
@@ -473,9 +483,13 @@ function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?:
 
 function App() {
   const [showDemo, setShowDemo] = useState(false)
-  if (supabase && !supabaseConfigMissing) return showDemo
-    ? <LocalDemoApp configuredDemo onExitDemo={() => setShowDemo(false)} />
-    : <SupabaseApp onTryDemo={() => setShowDemo(true)} />
+  const [authEntry, setAuthEntry] = useState<Exclude<Section, 'entry'> | null>(null)
+  if (supabase && !supabaseConfigMissing) {
+    if (showDemo) return <LocalDemoApp configuredDemo onExitDemo={() => setShowDemo(false)} />
+    if (authEntry) return <SupabaseApp initialSection={authEntry} onTryDemo={() => setShowDemo(true)} onExit={() => setAuthEntry(null)} />
+    const landingProfile = { id: 'my-brand', name: 'My brand', sources: [] }
+    return <EntryScreen profile={landingProfile} hasCloudAuth onReviewContent={() => setAuthEntry('review')} onManageSources={() => setAuthEntry('knowledge')} onTrySample={() => setShowDemo(true)} />
+  }
   return <LocalDemoApp />
 }
 

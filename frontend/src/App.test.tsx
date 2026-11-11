@@ -14,9 +14,14 @@ afterEach(() => {
 })
 
 describe('judge demo startup', () => {
-  it('opens the preloaded Daybreak draft and analyzes it automatically', async () => {
+  it('restores the three choice landing page and opens the Daybreak sample without sign-in', async () => {
     render(<App />)
 
+    expect(screen.getByRole('heading', { name: /Where would youlike to begin\?/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Open the review desk/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Open the source cabinet/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /Try the sample review/i }))
     const editor = await screen.findByRole('textbox', { name: 'Edit campaign caption' })
     expect(editor).toHaveValue(DEMO_DRAFT)
     expect((await screen.findAllByText(/20% off through November 30/)).length).toBeGreaterThan(0)
@@ -26,6 +31,17 @@ describe('judge demo startup', () => {
     expect(screen.getByText('Cold Brew product facts')).toBeInTheDocument()
     expect(screen.getByText('November offer approval')).toBeInTheDocument()
     expect(screen.getByText('Daybreak brand voice')).toBeInTheDocument()
+  })
+
+  it('keeps separate creator and steward destinations reachable from the landing page', async () => {
+    render(<App />)
+
+    await userEvent.click(screen.getByRole('button', { name: /Open the review desk/i }))
+    expect(await screen.findByRole('button', { name: 'Check against sources' })).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle('Choose a starting point'))
+
+    await userEvent.click(screen.getByRole('button', { name: /Open the source cabinet/i }))
+    expect(await screen.findByRole('heading', { name: /Put your standards to work/ })).toBeInTheDocument()
   })
 
   it('keeps saved custom workspaces and drafts when starting in Daybreak', async () => {
@@ -63,6 +79,7 @@ describe('judge demo startup', () => {
 
     render(<App />)
 
+    await userEvent.click(screen.getByRole('button', { name: /Try the sample review/i }))
     expect(await screen.findByRole('textbox', { name: 'Edit campaign caption' })).toHaveValue(DEMO_DRAFT)
     await userEvent.click(screen.getByRole('button', { name: /Back to Northstar/ }))
     await waitFor(() => {
@@ -77,6 +94,7 @@ describe('judge demo startup', () => {
 
     render(<App />)
 
+    await userEvent.click(screen.getByRole('button', { name: /Try the sample review/i }))
     expect(await screen.findByRole('textbox', { name: 'Edit campaign caption' })).toHaveValue(DEMO_DRAFT)
     expect((await screen.findAllByText(/20% off through November 30/)).length).toBeGreaterThan(0)
   })
@@ -85,6 +103,7 @@ describe('judge demo startup', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await user.click(screen.getByRole('button', { name: /Try the sample review/i }))
     await screen.findAllByText(/20% off through November 30/)
     await screen.findByRole('button', { name: 'Run the check again' })
     await user.click(screen.getByRole('button', { name: 'Send claim for review' }))

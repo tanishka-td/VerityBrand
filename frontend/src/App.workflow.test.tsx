@@ -12,6 +12,7 @@ afterEach(() => {
 
 async function openDaybreakReview() {
   render(<App />)
+  await userEvent.click(screen.getByRole('button', { name: /Try the sample review/i }))
   await screen.findByRole('button', { name: 'Run the check again' })
 }
 

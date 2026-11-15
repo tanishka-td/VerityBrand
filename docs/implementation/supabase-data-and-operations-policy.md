@@ -1,0 +1,51 @@
+# VerityBrand data and operations decisions
+
+This document records what the repository currently supports, the product decisions already supplied by the owner, and operational choices that still need approval. A schema or recommendation is not evidence that a live service has been configured.
+
+## Customer, workspace, and roles
+
+**Current repository facts:** the initial schema has `public.workspaces` and `public.workspace_members`, with one `owner`, `editor`, or `reviewer` role per user per workspace (`supabase/migrations/20261110173550_initial_veritybrand_schema.sql`). Membership is unique by `(workspace_id, user_id)`. The current browser bootstrap in `frontend/src/components/SupabaseApp.tsx` silently chooses the first membership, or creates a single “My brand” workspace for a user with none. There is no customer/organization table, invite flow, workspace switcher, or member administration UI.
+
+**Owner decisions for Round 3:** Owner administers workspace and members, manages approved sources, drafts, analysis, review decisions, and final approval. Editor creates/edits drafts and analyzes; can view sources/findings and submit review requests; cannot manage sources or approve finally. Reviewer reads sources/findings and records review decisions/revision requests; final approval requires an Owner-set authorization. Approved-source writes are Owner-only, reads remain available to workspace members. These decisions are enforced only to the extent of the local migrations; see [database review](supabase-database-review.md).
+
+**Requires business approval before customer launch:** initial customer type, whether a workspace means one brand/team or an organization with multiple brands, expected team size, billing/customer boundary, whether one person can hold multiple roles, and whether a distinct steward role is ever needed. The current schema gives each person one role per workspace and has no role-combination mechanism. Preserve that behavior until a product decision and matching migration/tests exist.
+
+## Workspace lifecycle and data model
+
+**Implemented in repository:** workspaces, memberships, approved source text, drafts, draft revisions, review snapshots, findings, reviewer decisions, and final approvals. Several relationships constrain records to the same workspace; workspace deletion cascades for top-level data, while revision/review evidence relationships use `RESTRICT`. There is no implemented archive, transfer, export, tenant offboarding, retention job, or deletion request workflow.
+
+**Recommended lifecycle (requires owner/business approval):** create workspace; assign an Owner; add invited members with least privilege; suspend access immediately on offboarding; export data before closure if requested; then delete/anonymize workspace records according to a published retention schedule and legal holds. Decide who may transfer ownership and what happens if the last Owner leaves. Do not implement irreversible deletion behavior until retention and contractual requirements are approved.
+
+The plan calls for immutable review snapshots tied to an exact draft revision and a versioned source set. Current `reviews.sources_snapshot` is JSON, but source rows have no immutable versions or approval states, and source edits do not create version records. The UI compares the current source/draft snapshots in memory for staleness; the database does not fully enforce source-snapshot invalidation.
+
+## Supported content and languages
+
+**Current code facts:** `frontend/src/components/ReviewWorkspace.tsx` imports plain text files with `.txt` or `.md` extensions, capped at 2 MB, and reads them as browser text. Text can also be entered directly. No PDF, DOCX, image, video, audio, or OCR ingestion is implemented. `analysis/analyzer.py` and the browser checker use English-oriented number, offer-date, and superlative patterns. The repository does not define or test a supported-language list.
+
+**Safe product statement today:** text entry plus `.txt`/`.md` import for the existing interface; no language-coverage promise. This does not mean every statement in those files is understood. PDF/DOCX and other modalities are later plan phases, after extraction offsets, evidence citations, privacy controls, and safe failure are built.
+
+**Requires product approval:** whether English is the only supported launch language, whether Markdown formatting is retained or flattened, file-size and encoding rules, and any future formats/languages. Do not describe PDF/DOCX or multilingual review as available.
+
+## Approved-source rules
+
+Round 3 decision: only Owners may insert, update, or delete source rows; all workspace members may read them. Current sources are plain text rows in `public.approved_sources`, with `owner_label`, `kind`, `valid_from`, and `valid_through`. There are no draft/approved/revoked states, formal approval actor/time, or immutable source versions. Date validity alone does not prove a source is approved/current. Source stewardship is therefore an Owner permission, not a separate role.
+
+Before treating “approved” as a production evidence guarantee, define source entry review, required metadata, effective/expiry behavior, revocation, version history, owner of record, and how active reviews retain the exact source version. The Phase 1 plan explicitly requires source states and versioning; these are not in the current baseline.
+
+## Retention, export, deletion, backup, and offboarding
+
+These are operational recommendations, not implemented controls. The business and counsel must approve retention periods, export format, deletion deadline, legal hold behavior, backup retention, and customer notification terms before real customer content is stored.
+
+| Area | Current implementation | Recommended control / approval needed |
+|---|---|---|
+| Retention | No scheduled retention/deletion policy or timestamps for purge state. | Approve schedule by data class (drafts, source material, audit/approval records, auth account, backups); implement scheduled deletion only after legal review. |
+| Export | No user/workspace export feature. | Provide a documented, authenticated export of workspace, revisions, sources, findings, decisions, approvals, and relevant metadata; test completeness and access isolation. |
+| Deletion | Workspace/member cascades exist in parts of the schema, but no verified end-user deletion workflow; related `RESTRICT` relationships can prevent deletion. | Build an Owner-controlled closure and user deletion process, record request/status, resolve retention/legal holds, and verify backups expire on schedule. Never promise immediate erasure from backups without an implemented process. |
+| Backup/recovery | No repository evidence of a live backup schedule or restore test. | Configure provider backups/PITR appropriate to the chosen plan, define RPO/RTO, protect access, and periodically restore into an isolated environment. Verify with the project owner; this repo cannot verify Dashboard settings. |
+| Offboarding | A member can leave through a row policy, but there is no UI/process for revoking sessions, transferring ownership, or reviewing authored records. | Remove membership promptly, revoke active Auth sessions when warranted, rotate any shared credentials, transfer ownership before removing the last Owner, and retain audit records as approved. |
+| Incident response | No operational incident plan or monitoring configuration is present. | Assign an incident owner and escalation route; preserve logs, contain access, assess tenant exposure, notify affected parties/regulators under counsel-approved deadlines, rotate credentials, and document remediation. |
+| Test accounts | Local pgTAP fixtures use synthetic `.invalid` addresses. No approved hosted test-account roster exists. | Use synthetic data and dedicated, least-privilege accounts in isolated staging/demo projects; inventory owners, MFA/password handling, expiry, and cleanup. Never use customer content. |
+
+## Demo boundary
+
+Keep the public Daybreak Coffee sample fictional, local/browser-contained, deterministic, and available without authentication. Do not allow public anonymous writes to shared workspace data. Authenticated demonstrations belong in a separate demo Supabase project with synthetic data, constrained dedicated accounts, and tested RLS. The public static frontend may contain only the project URL and publishable key; those values are public and RLS—not key secrecy—protects data. The current repository alone does not prove a demo project or its controls are configured.

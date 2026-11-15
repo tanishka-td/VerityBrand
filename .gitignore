@@ -19,3 +19,6 @@ work/
 # Python analyzer test artifacts
 __pycache__/
 *.py[cod]
+
+# Supabase CLI local state and generated credentials
+supabase/.temp/

@@ -40,6 +40,7 @@ interface Props {
   onLoadSample: () => void
   canEditContent?: boolean
   canMakeDecisions?: boolean
+  canApproveFinal?: boolean
   isCloud?: boolean
 }
 
@@ -74,7 +75,7 @@ export function ReviewWorkspace(props: Props) {
     activity, decisions, revisions, approvedRevisionId, approved, coverageAcknowledged, manualReviewRequested, onCoverageAcknowledged, exceptionNote, setExceptionNote,
     notice, onDismissNotice, onReview, onRequestReview, onConfirmReview,
     onRequestEvidence, onApproveException, onApplyWording, onApprove, onRequestManualReview, onApproveManualReview, onOpenSources, onLoadSample,
-    canEditContent = true, canMakeDecisions = true, isCloud = false,
+    canEditContent = true, canMakeDecisions = true, canApproveFinal = canMakeDecisions, isCloud = false,
   } = props
   const unresolvedCount = analysis?.findings.filter((finding) => finding.requires_human_review && decisions[finding.id] !== 'exception_approved').length ?? 0
   const noCoverage = Boolean(analysis && analysis.findings.length === 0)
@@ -209,7 +210,7 @@ export function ReviewWorkspace(props: Props) {
           <button type="button" className="sample-try-link" onClick={onLoadSample}><Icon name="spark" size={13}/>{isSample ? 'Reload the Daybreak example' : 'Try the Daybreak Coffee example'} <Icon name="arrow" size={13}/></button>
         </div> : noCoverage ? <div className="coverage-gap"><span className="coverage-icon">?</span><div><strong>{dirty ? 'Your draft or brand sources changed since the last check.' : 'No checkable claims were found.'}</strong><p>That does not mean the copy is safe. The checker cannot clear a draft it could not assess. Read each claim against an approved source or try a manual review.</p><span className="coverage-action">No automatic approval is available when there are no matching checks.</span>
           {!manualReviewRequested && !approved && canMakeDecisions && <button type="button" className="manual-review-button" onClick={onRequestManualReview}><Icon name="send" size={15} />Send the full draft for manual review</button>}
-          {manualReviewRequested && !approved && canMakeDecisions && <div className="manual-review-card"><span className="reviewer-label">HUMAN REVIEW</span><strong>Read the entire draft before deciding.</strong><p>This records a human-only decision. It does not claim that the checker verified the copy.</p><button type="button" className="approve-button" onClick={onApproveManualReview}>Approve after manual review <Icon name="arrow" size={15} /></button></div>}
+          {manualReviewRequested && !approved && canMakeDecisions && <div className="manual-review-card"><span className="reviewer-label">HUMAN REVIEW</span><strong>Read the entire draft before deciding.</strong><p>This records a human-only decision. It does not claim that the checker verified the copy.</p>{canApproveFinal ? <button type="button" className="approve-button" onClick={onApproveManualReview}>Approve after manual review <Icon name="arrow" size={15} /></button> : <p className="approval-permission-note">You can record review decisions, but an Owner must authorize you to give final approval.</p>}</div>}
           {approved && <div className="approved-banner manual-approved"><span className="approved-icon"><Icon name="check" size={17} /></span><div><strong>Human-only approval recorded</strong><span>The draft has no automated verification findings.</span></div><span className="approved-seal">SIGNED</span></div>}
         </div></div> : <>
           <div className="finding-list" role="list" aria-label="Checks from this review">
@@ -257,7 +258,7 @@ export function ReviewWorkspace(props: Props) {
           {allClear && !approved && <div className="approval-panel">
             <div className="approval-copy"><Icon name="seal" size={19} /><div><strong>One last human read</strong><span>These matched checks pass. Please review anything outside the sample rules before sign-off.</span></div></div>
             <label className="coverage-check"><input type="checkbox" checked={coverageAcknowledged} onChange={(event) => onCoverageAcknowledged(event.target.checked)} /><span>I reviewed the remaining copy and am comfortable approving this version.</span></label>
-            {canMakeDecisions && <button className="approve-button" type="button" disabled={!coverageAcknowledged} onClick={onApprove}>Approve this version <Icon name="arrow" size={15} /></button>}
+            {canApproveFinal ? <button className="approve-button" type="button" disabled={!coverageAcknowledged} onClick={onApprove}>Approve this version <Icon name="arrow" size={15} /></button> : canMakeDecisions && <p className="approval-permission-note">You can record review decisions, but an Owner must authorize you to give final approval.</p>}
           </div>}
           {approved && <div className="approved-banner"><span className="approved-icon"><Icon name="check" size={17} /></span><div><strong>Version approved</strong><span>{approvedRevisionNumber ? `Final authorized approval recorded for Version ${String(approvedRevisionNumber).padStart(2, '0')}.` : isCloud ? 'Final approval is saved in this workspace.' : 'Decision and activity are saved in this browser demo.'}</span></div><span className="approved-seal">SIGNED</span></div>}
           {activity.length > 0 && <details className="activity-log"><summary><span>Decision trail</span><span>{activity.length} event{activity.length === 1 ? '' : 's'} <Icon name="chevron" size={14} /></span></summary><ol>{activity.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol></details>}

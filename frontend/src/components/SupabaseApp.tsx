@@ -4,12 +4,14 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { supabase } from '../services/supabase'
 import { analyzeDraft } from '../services/reviewApi'
 import { createInitialOwnerMembership } from '../services/workspaceBootstrap'
+import { getWorkspacePermissions } from '../services/workspacePermissions'
+import type { WorkspaceRole } from '../services/workspacePermissions'
 import type { BrandProfile, DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from '../types'
 import { Icon } from './Icon'
 import { KnowledgePage } from './KnowledgePage'
 import { ReviewWorkspace } from './ReviewWorkspace'
 
-type Member = { workspace_id: string; user_id: string; member_role: 'owner' | 'editor' | 'reviewer' }
+type Member = { workspace_id: string; user_id: string; member_role: WorkspaceRole; can_final_approve: boolean }
 type WorkspaceRow = { id: string; name: string }
 type DecisionRow = { finding_id: string; decision: Exclude<ReviewDecision, 'not_sent'>; note: string | null }
 
@@ -69,8 +71,8 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const canEdit = member.member_role === 'owner' || member.member_role === 'editor'
-  const canReview = member.member_role === 'owner' || member.member_role === 'reviewer'
+  const permissions = getWorkspacePermissions(member)
+  const { canEditContent, canManageSources, canMakeDecisions, canApproveFinal } = permissions
 
   async function load() {
     setLoading(true); setError(''); setActivity([])
@@ -83,7 +85,7 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
       if (draftsRes.error) throw draftsRes.error
       setProfile({ id: workspace.id, name: workspace.name, sources: (sourcesRes.data ?? []).map((s: any) => ({ source_id: s.id, title: s.title, text: s.source_text, owner: s.owner_label ?? undefined, kind: s.kind ?? undefined, valid_from: s.valid_from ?? undefined, valid_through: s.valid_through ?? undefined })) })
       let row = draftsRes.data?.[0]
-      if (!row && canEdit) {
+      if (!row && canEditContent) {
         const created = await db.from('drafts').insert({ workspace_id: workspace.id, content: '', created_by: session.user.id }).select().single()
         if (created.error) throw created.error
         row = created.data
@@ -132,12 +134,12 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
 
   async function persistDraft(value: string) {
     setDraft(value); setApproved(false); setApprovedRevisionId(null)
-    if (!draftId || !canEdit) return
+    if (!draftId || !canEditContent) return
     const { error: saveError } = await db.from('drafts').update({ content: value }).eq('id', draftId).eq('workspace_id', workspace.id)
     if (saveError) setError(saveError.message)
   }
   async function saveProfile(next: BrandProfile) {
-    if (!canEdit) return
+    if (!canManageSources) return
     setBusy(true); setError('')
     try {
       if (next.name !== profile.name) { const res = await db.from('workspaces').update({ name: next.name }).eq('id', workspace.id); if (res.error) throw res.error }
@@ -155,7 +157,7 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
     finally { setBusy(false) }
   }
   async function checkDraft() {
-    if (!canEdit || !draftId || !draft.trim()) return
+    if (!canEditContent || !draftId || !draft.trim()) return
     setBusy(true); setError(''); setNotice('')
     try {
       const result = await analyzeDraft(draft, profile)
@@ -178,12 +180,12 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
     finally { setBusy(false) }
   }
   async function addDecision(decision: Exclude<ReviewDecision, 'not_sent'>, note?: string) {
-    const finding = analysis?.findings.find(f => f.id === selectedId); if (!finding || !canReview) return
+    const finding = analysis?.findings.find(f => f.id === selectedId); if (!finding || !canMakeDecisions) return
     const res = await db.from('reviewer_decisions').insert({ workspace_id: workspace.id, finding_id: finding.id, decision, note: note ?? null, actor_id: session.user.id })
     if (res.error) setError(res.error.message); else { setDecisions(old => ({ ...old, [finding.id]: decision })); setNotice('Reviewer decision saved.') }
   }
   async function approve(mode: 'reviewed' | 'manual_review') {
-    const revision = revisions.at(-1); if (!canReview || !analysis || !revision) return
+    const revision = revisions.at(-1); if (!canApproveFinal || !analysis || !revision) return
     const unresolved = analysis.findings.some(f => f.requires_human_review && decisions[f.id] !== 'exception_approved')
     if (dirty || revision.content !== draft || (mode === 'reviewed' && (!analysis.findings.length || unresolved || !coverageAcknowledged)) || (mode === 'manual_review' && (!manualReviewRequested || analysis.findings.length !== 0))) {
       setError('This draft is not ready for approval. Check the current version and complete its required review first.')
@@ -216,8 +218,8 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
     <div className="sidebar-bottom"><div className="demo-status"><span className="live-dot" /><span>Supabase workspace · {member.member_role}</span></div><p>{session.user.email}</p><button className="text-button" onClick={onSignOut}>Sign out</button><button className="text-button" onClick={() => void load()}>Refresh workspace</button></div>
   </aside><div className="app-main"><header className="topbar"><strong>{profile.name}</strong><span>{busy ? 'Saving…' : 'Supabase workspace'}</span></header><main className="main-content" id="main-content">
     {error && <p className="auth-error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-    {section === 'knowledge' ? <KnowledgePage profile={profile} onBack={() => setSection('review')} onSaveProfile={(p) => void saveProfile(p)} onLoadSample={onTryDemo} isCloud canEdit={canEdit}/> : <ReviewWorkspace
-      brandName={profile.name} isSample={false} sourceCount={profile.sources.length} draft={draft} setDraft={(v) => void persistDraft(v)} analysis={analysis} selectedFinding={selectedFinding} onSelectFinding={setSelectedId} isChecking={busy} dirty={dirty} decision={selectedFinding ? decisions[selectedFinding.id] ?? 'not_sent' : 'not_sent'} decisions={decisions} revisions={revisions} approvedRevisionId={approvedRevisionId} activity={activity} approved={approved} coverageAcknowledged={coverageAcknowledged} manualReviewRequested={manualReviewRequested} onCoverageAcknowledged={setCoverageAcknowledged} exceptionNote={exceptionNote} setExceptionNote={setExceptionNote} notice="" onDismissNotice={() => setNotice('')} onReview={() => void checkDraft()} onRequestReview={() => void addDecision('sent')} onConfirmReview={() => void addDecision('confirmed')} onRequestEvidence={() => void addDecision('evidence_requested')} onApproveException={() => { if (exceptionNote.trim()) { void addDecision('exception_approved', exceptionNote.trim()); setExceptionNote('') } }} onApplyWording={() => setNotice('Apply the suggested wording, then save and recheck.')} onApprove={() => void approve('reviewed')} onRequestManualReview={() => { setManualReviewRequested(true); setNotice('Manual review requested. Check again to persist the review state.') }} onApproveManualReview={() => void approve('manual_review')} onOpenSources={() => setSection('knowledge')} onLoadSample={onTryDemo} canEditContent={canEdit} canMakeDecisions={canReview} isCloud/>}</main></div></div>
+    {section === 'knowledge' ? <KnowledgePage profile={profile} onBack={() => setSection('review')} onSaveProfile={(p) => void saveProfile(p)} onLoadSample={onTryDemo} isCloud canEdit={canManageSources}/> : <ReviewWorkspace
+      brandName={profile.name} isSample={false} sourceCount={profile.sources.length} draft={draft} setDraft={(v) => void persistDraft(v)} analysis={analysis} selectedFinding={selectedFinding} onSelectFinding={setSelectedId} isChecking={busy} dirty={dirty} decision={selectedFinding ? decisions[selectedFinding.id] ?? 'not_sent' : 'not_sent'} decisions={decisions} revisions={revisions} approvedRevisionId={approvedRevisionId} activity={activity} approved={approved} coverageAcknowledged={coverageAcknowledged} manualReviewRequested={manualReviewRequested} onCoverageAcknowledged={setCoverageAcknowledged} exceptionNote={exceptionNote} setExceptionNote={setExceptionNote} notice="" onDismissNotice={() => setNotice('')} onReview={() => void checkDraft()} onRequestReview={() => void addDecision('sent')} onConfirmReview={() => void addDecision('confirmed')} onRequestEvidence={() => void addDecision('evidence_requested')} onApproveException={() => { if (exceptionNote.trim()) { void addDecision('exception_approved', exceptionNote.trim()); setExceptionNote('') } }} onApplyWording={() => setNotice('Apply the suggested wording, then save and recheck.')} onApprove={() => void approve('reviewed')} onRequestManualReview={() => { setManualReviewRequested(true); setNotice('Manual review requested. Check again to persist the review state.') }} onApproveManualReview={() => void approve('manual_review')} onOpenSources={() => setSection('knowledge')} onLoadSample={onTryDemo} canEditContent={canEditContent} canMakeDecisions={canMakeDecisions} canApproveFinal={canApproveFinal} isCloud/>}</main></div></div>
 }
 
 export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSection: WorkspaceSection; onTryDemo: () => void; onExit: () => void }) {
@@ -244,7 +246,7 @@ export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSect
     let task = bootstrapTasks.current.get(userId)
     if (!task) {
       task = (async () => {
-        const memberships = await supabase!.from('workspace_members').select('workspace_id,user_id,member_role').eq('user_id', userId)
+        const memberships = await supabase!.from('workspace_members').select('workspace_id,user_id,member_role,can_final_approve').eq('user_id', userId)
         if (memberships.error) throw memberships.error
         if (memberships.data?.length) {
           const selected = memberships.data[0] as Member

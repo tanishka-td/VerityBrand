@@ -3,7 +3,8 @@ import { createInitialOwnerMembership } from './workspaceBootstrap'
 
 describe('createInitialOwnerMembership', () => {
   it('inserts without requesting a returned row, then reads membership after commit', async () => {
-    const membership = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'owner' }
+    const membership = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'owner', can_final_approve: false }
+    const insertedMembership = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'owner' }
     const calls: string[] = []
     const client = {
       from: vi.fn(() => ({
@@ -18,11 +19,11 @@ describe('createInitialOwnerMembership', () => {
     }
 
     await expect(createInitialOwnerMembership(client, membership.workspace_id, membership.user_id)).resolves.toEqual(membership)
-    expect(calls).toEqual([`insert:${JSON.stringify(membership)}`, 'select'])
+    expect(calls).toEqual([`insert:${JSON.stringify(insertedMembership)}`, 'select'])
   })
 
   it('loads the winning membership if another session bootstraps at the same time', async () => {
-    const membership = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'owner' }
+    const membership = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'owner', can_final_approve: false }
     let selects = 0
     const client = {
       from: vi.fn(() => ({

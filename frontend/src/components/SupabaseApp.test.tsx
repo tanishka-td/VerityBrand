@@ -18,7 +18,7 @@ beforeEach(() => {
   auth.getSession.mockResolvedValue({ data: { session: null } })
   auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } })
   from.mockImplementation((table: string) => {
-    const member = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'reviewer' }
+    const member = { workspace_id: 'workspace-1', user_id: 'user-1', member_role: 'reviewer', can_final_approve: false }
     const workspace = { id: 'workspace-1', name: 'Northstar' }
     const result = table === 'workspace_members' ? [member] : table === 'workspaces' ? workspace : []
     const query: any = {

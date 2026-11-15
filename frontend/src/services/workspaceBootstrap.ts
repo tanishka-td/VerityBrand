@@ -5,7 +5,7 @@ export async function createInitialOwnerMembership(client: any, workspaceId: str
 
   // The select policy requires membership. Read only after the insert commits.
   const result = await client.from('workspace_members')
-    .select('workspace_id,user_id,member_role')
+    .select('workspace_id,user_id,member_role,can_final_approve')
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
     .single()

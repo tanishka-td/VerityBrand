@@ -25,10 +25,24 @@ export const DEMO_SOURCES: EvidenceSource[] = [
     owner: 'Brand Manager',
     kind: 'Brand voice',
   },
+  {
+    source_id: 'summer-approval-2026',
+    title: 'Summer Blend campaign approval',
+    text: 'Daybreak Summer Blend was available through August 31, 2026, and was made with Guatemala beans.',
+    owner: 'Product Owner',
+    kind: 'Seasonal product facts',
+    valid_from: '2026-05-01',
+    valid_through: '2026-08-31',
+  },
 ]
 
 export const DEMO_AS_OF = '2026-11-10'
-export const DEMO_DRAFT = 'Meet Daybreak Cold Brew: 250 ml with 80 mg of caffeine. Get 20% off through November 30!'
+export const DEMO_DRAFT = [
+  'Meet Daybreak Cold Brew: 250 ml with 80 mg of caffeine.',
+  'Get 20% off through November 30, 2026.',
+  'The Summer Blend is still available through August 31, 2026, and uses Guatemala beans.',
+  'Daybreak is the best cold brew in the city.',
+].join('\n')
 export const DEMO_PROFILE: BrandProfile = {
   id: 'daybreak-demo',
   name: 'Daybreak Coffee',

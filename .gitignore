@@ -15,3 +15,7 @@ Thumbs.db
 # Local browser QA artifacts
 .playwright-mcp/
 work/
+
+# Python analyzer test artifacts
+__pycache__/
+*.py[cod]

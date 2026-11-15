@@ -135,6 +135,20 @@ export function ReviewWorkspace(props: Props) {
       <div className="review-id"><span>REVIEW ID</span><strong>VB · 014</strong></div>
     </section>
 
+    {isSample && analysis && <section className="sample-journey" aria-label="Daybreak guided sample">
+      <div className="sample-journey-heading"><span className="sample-journey-kicker">DAYBREAK COFFEE · GUIDED SAMPLE</span><strong>One campaign, four evidence outcomes.</strong><p>Choose a finding to see what the checker can support, what needs an update, and what should stay with a person.</p></div>
+      <div className="sample-journey-grid">{(['supported', 'contradicted', 'outdated', 'unverified'] as const).map((status) => {
+        const finding = analysis.findings.find((item) => item.status === status)
+        if (!finding) return null
+        const label = status === 'supported' ? 'Supported' : status === 'contradicted' ? 'Mismatch' : status === 'outdated' ? 'Out of date' : 'Unverified'
+        return <button key={status} type="button" className={`sample-journey-item ${selectedFinding?.id === finding.id ? 'is-selected' : ''}`} aria-pressed={selectedFinding?.id === finding.id} onClick={() => onSelectFinding(finding.id)}>
+          <span className={`sample-journey-status status-${status}`}><i />{label}</span>
+          <strong>{finding.claim.length > 74 ? `${finding.claim.slice(0, 71)}…` : finding.claim}</strong>
+          <small>Inspect source and next step <Icon name="arrow" size={12} /></small>
+        </button>
+      })}</div>
+    </section>}
+
     <div className="workspace-grid">
       <section className="draft-panel" aria-labelledby="draft-title">
         <div className="panel-heading">

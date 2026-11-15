@@ -1,13 +1,13 @@
 # VerityBrand
 
-VerityBrand is an early-access brand governance prototype. Start from separate entry points for creators and reviewers, or for brand stewards. Both work areas use the same private browser workspace. Daybreak Coffee is an optional, one-click sample review.
+VerityBrand is an early-access brand governance prototype. Start from separate entry points for creators/reviewers or brand stewards. Daybreak Coffee is an optional, one-click sample review. When Supabase is configured, the app also includes a shared account/workspace path; confirm deployment and policy state for the target environment before using real data.
 
 ## Run the prototype
 
 Use Node.js 20.19+ or 22.12+.
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
@@ -21,7 +21,7 @@ Open the local address printed by Vite. Build the static bundle with `npm run bu
 4. Inspect each finding and its matched source. Clear matches can continue to human sign-off; conflicting values, stale sources, and unclear wording remain open for a person.
 5. Edit or remove sources in the source cabinet, then recheck the draft against the current references.
 
-Choose **Try the sample review** to open Daybreak Coffee with its claims already checked. The offer mismatch and its approved source are selected so the review can be explored immediately. The sidebar keeps a sample shortcut available from either work area.
+Choose **Try the sample review** to open Daybreak Coffee with its claims already checked. The fictional launch campaign demonstrates a supported product fact, a conflicting offer, an expired seasonal claim, and an unsupported superlative. The four-outcome guide selects each finding so visitors can inspect its source and human next step. The sidebar keeps a sample shortcut available from either work area.
 
 ## What is implemented
 
@@ -35,9 +35,9 @@ Choose **Try the sample review** to open Daybreak Coffee with its claims already
 
 ## Prototype boundaries
 
-This is a local early-access prototype, not a hosted multi-user market service. Workspaces, drafts, findings, and decisions stay in the current browser's local storage; reviewer routing is simulated and no content is shared with a team or server unless an API is configured. The built-in general checker is a conservative heuristic, not a trained AI model or a guarantee of truth. It only detects selected claim cues and compares them with text sources; it does not inspect images or video. Unmatched or ambiguous copy remains for human review.
+The app has a browser-local path and an optional Supabase path. Browser-local records remain in the current browser. The Supabase UI and initial migration are present in the repository, but a live project must be separately configured, deployed, and security-tested. The built-in checker runs in the browser; it is a conservative heuristic, not a trained AI model or a guarantee of truth. It detects selected claim cues and compares them with text sources; it does not inspect images or video. The separate Python analyzer is not connected to the web app. Unmatched or ambiguous copy remains for human review.
 
-If a review API is connected, set `VITE_API_BASE_URL`. The adapter posts to `${VITE_API_BASE_URL}/api/reviews/analyze` with `content`, `brand_profile_id`, `brand_profile`, and `as_of`, and expects the result shape in `src/types.ts`.
+The optional `VITE_API_BASE_URL` adapter expects `${VITE_API_BASE_URL}/api/reviews/analyze` and the response shape in `src/types.ts`. It is not a substitute for authentication, server-side membership checks, or evidence validation. Do not send privileged keys or trust source/role data supplied by the browser.
 
 ## Stack
 

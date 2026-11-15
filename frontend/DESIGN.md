@@ -20,11 +20,11 @@
 
 ## Product boundaries for this prototype
 
-- New visitors choose between the creator/reviewer desk and brand steward source cabinet. Both work areas share a private browser workspace, and the Daybreak Coffee sample opens with its mismatch already checked.
+- New visitors choose between the creator/reviewer desk and brand steward source cabinet. The Daybreak Coffee sample opens with its mismatch already checked. Role-specific entry is navigation context; authorization must come from verified workspace membership.
 - Visitors can create and rename multiple workspaces, add/edit/remove approved references, import `.txt` / `.md` text, and check their own copy.
 - The built-in general checker is a conservative local heuristic. It looks for selected claim cues, compares text and numbers with approved references, and marks unclear matches for a person. It is not a trained AI model, does not inspect images or video, and cannot establish that an unmatched claim is true.
-- Owner routing and owner decisions are simulated in the browser so one person can complete the workflow. Workspaces, drafts, and activity stay in local browser storage; content is not sent to a server unless a review API is configured.
-- Multi-user accounts, shared reviewer routing, server-side storage, full source ingestion, and multimodal AI analysis require connected services beyond this frontend prototype.
+- The local demo simulates routing and stores its data in browser storage. A separate Supabase-backed path exists in the codebase, but actual deployment and RLS validation are environment-specific. The Python analyzer is not connected to the frontend.
+- Full source ingestion, production notifications, and multimodal AI analysis are not established in the current prototype.
 
 ## Stack
 

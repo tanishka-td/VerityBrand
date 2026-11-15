@@ -1,6 +1,6 @@
 # VerityBrand analysis component
 
-This folder contains the first pass of VerityBrand's claim-analysis logic. It is intentionally conservative and dependency-free. It checks exact numeric product facts, current offers, and common unsupported superlatives against an organisation-supplied brand profile.
+This folder contains VerityBrand's standalone, conservative claim-analysis logic. It has no third-party dependencies. It checks configured numeric product facts, current offers, and common unsupported superlatives against an organisation-supplied brand profile.
 
 ## What it does
 
@@ -10,7 +10,7 @@ This folder contains the first pass of VerityBrand's claim-analysis logic. It is
 - Marks claims without approved evidence as `unverified` and routes them to a configured human role.
 - Keeps final approval with a human even when every finding is supported.
 
-The current implementation is rule-based for the Daybreak Coffee demo. It does not call an LLM, inspect images, or claim to understand arbitrary factual language. Unknown claims should remain unverified; they must not be guessed at.
+The implementation is rule-based and can accept different profiles that follow the documented schema. It does not call an LLM, inspect images, or understand arbitrary factual language. Unknown, ambiguous, malformed, or incompletely sourced claims should remain unverified; they must not be guessed at. This analyzer is not currently connected to the web app.
 
 ## Example brand profile
 
@@ -76,3 +76,7 @@ Each finding contains `claim`, `category`, `status`, `severity`, `explanation`, 
 ## Integration boundary
 
 Call `analyze_content(content, profile, as_of=...)` from the API layer. Keep uploaded source documents and profile construction in the application/backend. For repeatable tests and demos, always pass a fixed `as_of` date. The app should display evidence and route only findings whose `requires_human_review` value is true.
+
+## Regression checks
+
+Run `python -m unittest -v` from this folder. The tests cover source-backed matches and conflicts, ambiguous and invalid facts, missing/invalid offer dates, malformed profile collections, and the rule that unsupported claims stay unverified.

@@ -3,10 +3,10 @@
 ## Project architecture
 
 - The frontend is a React 19, TypeScript, and Vite application in `frontend/`.
-- The current application stores brand workspaces, approved sources, drafts, findings, decisions, approvals, and activity in browser state and `localStorage`. Treat this as the existing persistence behavior unless a task explicitly changes it.
-- `analysis part/analyzer.py` is a separate, dependency-free Python claim analyzer. It is not currently connected to the frontend. Keep its profile and output contracts explicit when adding an integration.
+- The React 19/TypeScript/Vite frontend includes browser-local mode and an optional Supabase-backed auth/workspace path. Verify runtime configuration before claiming a live backend is deployed.
+- `analysis/analyzer.py` is a separate, dependency-free Python claim analyzer. It is not connected to the frontend. Keep its profile and output contracts explicit when adding an integration.
 - `.github/workflows/deploy-pages.yml` builds the frontend and deploys the static output to GitHub Pages.
-- Supabase is not yet integrated. Do not assume that a handoff document or planned integration means database, authentication, or server functionality already exists.
+- A Supabase migration and frontend integration exist in the repository. Do not assume that a live project is provisioned, configured, deployed, or security-reviewed just because those files exist.
 
 ## Development principles
 
@@ -32,6 +32,7 @@ Changes to the product should preserve or deliberately account for these workflo
 
 - Never expose a Supabase service-role key or other privileged credential in frontend code, browser storage, or a `VITE_*` variable.
 - Require and review Row Level Security (RLS) policies before exposing shared Supabase data to clients.
+- Treat role-specific entry pages as navigation context only; enforce authorization in trusted database policies and server endpoints.
 - Never commit credentials, secrets, or `.env` files. Use environment-specific secret management and commit only safe examples with placeholder values when needed.
 - Keep public frontend configuration separate from privileged server-side secrets. Only values intended to be public may be included in the frontend build.
 

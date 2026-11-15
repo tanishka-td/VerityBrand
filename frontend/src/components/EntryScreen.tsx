@@ -42,7 +42,7 @@ export function EntryScreen({ profile, onReviewContent, onManageSources, onTrySa
 
       <section className="entry-sample" aria-labelledby="sample-title">
         <span className="entry-sample-mark"><Icon name="spark" size={19} /></span>
-        <div className="entry-sample-copy"><span>NEW TO VERITYBRAND?</span><h2 id="sample-title">Try the Daybreak Coffee sample</h2><p>Open a preloaded review with a real mismatch to inspect.</p></div>
+        <div className="entry-sample-copy"><span>NEW TO VERITYBRAND?</span><h2 id="sample-title">Try the Daybreak Coffee sample</h2><p>Explore four claim outcomes, inspect the evidence, and follow the review to a human decision.</p></div>
         <button type="button" className="entry-sample-action" onClick={onTrySample}>Try the sample review <Icon name="arrow" size={16} /></button>
       </section>
       <p className="entry-footnote">{hasCloudAuth ? 'Sign in to use shared workspaces. The Daybreak sample is available without an account.' : 'No account needed. This prototype saves work in the current browser only.'}</p>

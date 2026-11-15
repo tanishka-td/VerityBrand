@@ -131,6 +131,12 @@ function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?:
   const analysisRequestId = useRef(0)
 
   useEffect(() => {
+    if (!notice) return
+    const timeout = window.setTimeout(() => setNotice(''), 4500)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
+
+  useEffect(() => {
     if (configuredDemo) return
     const currentReviewState: WorkspaceReviewState = { analysis, selectedId, decisions, approved, approvedRevisionId, coverageAcknowledged, manualReviewRequested, activity }
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -418,7 +424,7 @@ function LocalDemoApp({ configuredDemo = false, onExitDemo }: { configuredDemo?:
         <div className={`sidebar-role-card sidebar-role-${sidebarMode}`}>
           <div className="sidebar-role-eyebrow"><Icon name={sidebarMode === 'steward' ? 'library' : sidebarMode === 'sample' ? 'spark' : 'review'} size={14} />{sidebarMode === 'steward' ? 'BRAND STEWARD' : sidebarMode === 'sample' ? 'GUIDED SAMPLE' : 'CREATOR & REVIEWER'}</div>
           <strong>{sidebarMode === 'sample' ? 'Daybreak Coffee' : sidebarMode === 'steward' ? 'Source cabinet' : 'Review desk'}</strong>
-          <span>{sidebarMode === 'sample' ? 'One offer mismatch is ready to inspect.' : sidebarMode === 'steward' ? `${activeProfile.sources.length} approved reference${activeProfile.sources.length === 1 ? '' : 's'} to maintain.` : 'Check campaign claims and route questions.'}</span>
+          <span>{sidebarMode === 'sample' ? 'Four claim outcomes are ready to explore.' : sidebarMode === 'steward' ? `${activeProfile.sources.length} approved reference${activeProfile.sources.length === 1 ? '' : 's'} to maintain.` : 'Check campaign claims and route questions.'}</span>
         </div>
         <nav className="primary-nav">
           <span className="nav-caption">{isSampleWorkspace ? 'SAMPLE WORKFLOW' : sidebarMode === 'steward' ? 'STEWARD TOOLS' : 'CREATOR WORKSPACE'}</span>

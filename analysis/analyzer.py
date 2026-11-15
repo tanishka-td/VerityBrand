@@ -101,6 +101,8 @@ def _finding(
 def _check_product_numbers(text: str, profile: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     facts = profile.get("approved_facts", [])
+    if not isinstance(facts, list):
+        facts = []
     owners = profile.get("owners", {})
 
     checks = [
@@ -110,24 +112,38 @@ def _check_product_numbers(text: str, profile: dict[str, Any]) -> list[dict[str,
     for field, pattern, unit in checks:
         for match in pattern.finditer(text):
             claimed_value = int(match.group(1))
-            source = next(
-                (fact for fact in facts if field in fact.get("values", {})),
-                None,
-            )
+            matching_sources = [
+                fact for fact in facts
+                if isinstance(fact, dict) and isinstance(fact.get("values"), dict)
+                and field in fact["values"]
+            ]
             claim = _excerpt(text, match.start(), match.end())
-            if source is None:
+            if len(matching_sources) != 1:
+                reason = "No approved source" if not matching_sources else "Multiple approved sources"
                 findings.append(_finding(
                     claim=claim,
                     category="product_fact",
                     status=STATUS_UNVERIFIED,
                     severity="medium",
-                    explanation=f"No approved source for this {unit} value was found.",
-                    suggested_action="Ask the product owner to confirm the value and add an approved source.",
-                    reviewer_role=owners.get("product", "Product Owner"),
+                    explanation=f"{reason} for this {unit} value could be selected confidently.",
+                    evidence=[_evidence(fact) for fact in matching_sources],
+                    suggested_action="Ask the product owner to confirm the value and keep one current approved source.",
+                    reviewer_role=owners.get("product", "Product Owner") if isinstance(owners, dict) else "Product Owner",
                 ))
                 continue
 
-            approved_value = int(source["values"][field])
+            source = matching_sources[0]
+            try:
+                approved_value = int(source["values"][field])
+            except (TypeError, ValueError, OverflowError):
+                findings.append(_finding(
+                    claim=claim, category="product_fact", status=STATUS_UNVERIFIED,
+                    severity="medium", explanation=f"The approved {unit} value is missing or invalid.",
+                    evidence=[_evidence(source)],
+                    suggested_action="Ask the product owner to correct the approved source.",
+                    reviewer_role=owners.get("product", "Product Owner") if isinstance(owners, dict) else "Product Owner",
+                ))
+                continue
             evidence = [_evidence(source)]
             if claimed_value == approved_value:
                 findings.append(_finding(
@@ -147,7 +163,7 @@ def _check_product_numbers(text: str, profile: dict[str, Any]) -> list[dict[str,
                     explanation=f"The draft says {claimed_value} {unit}; the approved source says {approved_value} {unit}.",
                     evidence=evidence,
                     suggested_action=f"Use {approved_value} {unit} only after the product owner confirms the source is current.",
-                    reviewer_role=owners.get("product", "Product Owner"),
+                    reviewer_role=owners.get("product", "Product Owner") if isinstance(owners, dict) else "Product Owner",
                 ))
     return findings
 
@@ -177,7 +193,11 @@ def _check_offer(text: str, profile: dict[str, Any], as_of: date) -> list[dict[s
     claim = _excerpt(text, claim_start, claim_end)
 
     offers = profile.get("approved_offers", [])
-    owner = profile.get("owners", {}).get("offer", "Offer Manager")
+    if not isinstance(offers, list):
+        offers = []
+    offers = [offer for offer in offers if isinstance(offer, dict)]
+    owners = profile.get("owners", {})
+    owner = owners.get("offer", "Offer Manager") if isinstance(owners, dict) else "Offer Manager"
     if not offers:
         return [_finding(
             claim=claim,
@@ -191,13 +211,30 @@ def _check_offer(text: str, profile: dict[str, Any], as_of: date) -> list[dict[s
 
     active = []
     expired = []
+    invalid_date_sources = []
     for offer in offers:
-        start = _as_date(offer.get("start_date"))
-        end = _as_date(offer.get("end_date"))
+        raw_start, raw_end = offer.get("start_date"), offer.get("end_date")
+        start = _as_date(raw_start)
+        end = _as_date(raw_end)
+        if (raw_start and start is None) or (raw_end and end is None):
+            invalid_date_sources.append(offer)
+            continue
         if (start is None or start <= as_of) and (end is None or as_of <= end):
             active.append(offer)
         elif end is not None and end < as_of:
             expired.append(offer)
+
+    if invalid_date_sources:
+        return [_finding(
+            claim=claim,
+            category="promotion",
+            status=STATUS_UNVERIFIED,
+            severity="high",
+            explanation="An approved offer has an invalid validity date, so the checker cannot establish which terms are current.",
+            evidence=[_evidence(source) for source in invalid_date_sources],
+            suggested_action="Ask the offer owner to correct the approved offer dates before publishing.",
+            reviewer_role=owner,
+        )]
 
     if not active:
         source = max(expired, key=lambda item: _as_date(item.get("end_date")) or date.min) if expired else offers[-1]
@@ -229,10 +266,31 @@ def _check_offer(text: str, profile: dict[str, Any], as_of: date) -> list[dict[s
     source = active[0]
     approved_percent = source.get("discount_percent")
     approved_end = _as_date(source.get("end_date"))
-    percent_ok = percent_match is None or (
-        approved_percent is not None and int(percent_match.group(1)) == int(approved_percent)
-    )
-    date_ok = claimed_end is None or approved_end is None or claimed_end == approved_end
+    if (percent_match and approved_percent is None) or (claimed_end and approved_end is None):
+        return [_finding(
+            claim=claim,
+            category="promotion",
+            status=STATUS_UNVERIFIED,
+            severity="high",
+            explanation="The approved source is missing a discount value or end date needed to verify this claim.",
+            evidence=[_evidence(source)],
+            suggested_action="Ask the offer owner to complete the approved offer details.",
+            reviewer_role=owner,
+        )]
+    try:
+        percent_ok = percent_match is None or int(percent_match.group(1)) == int(approved_percent)
+    except (TypeError, ValueError, OverflowError):
+        return [_finding(
+            claim=claim,
+            category="promotion",
+            status=STATUS_UNVERIFIED,
+            severity="high",
+            explanation="The approved discount value is invalid, so the promotion cannot be checked.",
+            evidence=[_evidence(source)],
+            suggested_action="Ask the offer owner to correct the approved discount value.",
+            reviewer_role=owner,
+        )]
+    date_ok = claimed_end is None or claimed_end == approved_end
 
     if percent_ok and date_ok:
         return [_finding(
@@ -263,6 +321,12 @@ def _check_unsubstantiated_superlatives(text: str, profile: dict[str, Any]) -> l
     ])
     approved_claims = profile.get("approved_claims", [])
     owners = profile.get("owners", {})
+    if not isinstance(owners, dict):
+        owners = {}
+    if not isinstance(phrases, list):
+        phrases = []
+    if not isinstance(approved_claims, list):
+        approved_claims = []
     findings: list[dict[str, Any]] = []
 
     for phrase in phrases:
@@ -271,7 +335,7 @@ def _check_unsubstantiated_superlatives(text: str, profile: dict[str, Any]) -> l
             matched = match.group(0)
             claim = _excerpt(text, match.start(), match.end())
             source = next(
-                (item for item in approved_claims if matched.casefold() in str(item.get("text", "")).casefold()),
+                (item for item in approved_claims if isinstance(item, dict) and matched.casefold() in str(item.get("text", "")).casefold()),
                 None,
             )
             if source:
@@ -310,6 +374,9 @@ def analyze_content(
         raise ValueError("content must be a non-empty string")
     if not isinstance(profile, dict):
         raise TypeError("profile must be a dictionary")
+    for field in ("approved_facts", "approved_offers", "approved_claims", "claims_requiring_evidence"):
+        if field in profile and not isinstance(profile[field], list):
+            raise TypeError(f"profile.{field} must be a list")
 
     review_date = _as_date(as_of) if as_of is not None else date.today()
     if review_date is None:

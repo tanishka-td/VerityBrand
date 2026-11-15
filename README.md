@@ -1,31 +1,38 @@
 # VerityBrand
 
-VerityBrand is a prototype for checking marketing copy against approved brand sources. Creators can review a draft and inspect evidence; brand stewards can maintain the approved sources used for checks. The Daybreak Coffee sample is available to anyone who wants to explore a preloaded example.
+VerityBrand helps teams review campaign copy against approved brand sources. It explains what matched or needs attention and keeps the final publication decision with a person.
 
-## Run locally
+## Project map
+
+- `frontend/` — React 19, TypeScript, and Vite web app. Includes creator/reviewer and brand-steward entry points, a guided Daybreak sample, browser-local mode, and an optional Supabase-backed workspace.
+- `analysis/` — standalone, dependency-free Python claim analyzer and regression tests. It is not currently called by the web app.
+- `supabase/migrations/` — initial shared-workspace schema, role policies, and Row Level Security rules. Review and test policies in a Supabase project before exposing real data.
+- `docs/` — product and implementation plans.
+- `.github/workflows/` — GitHub Pages static frontend deployment.
+
+## Run the web app
 
 Requires Node.js 20.19+ or 22.12+.
 
-```bash
+```powershell
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. To create and preview the production build, run `npm run build` followed by `npm run preview` from `frontend/`.
+To make a production build, run `npm run build` from `frontend/`. See [frontend/README.md](frontend/README.md) for environment variables and current workflow boundaries.
 
-## What's included
+## Run the analyzer checks
 
-- `frontend/` — React, TypeScript, and Vite web prototype.
-- `analysis part/` — dependency-free Python claim-checking component and its integration notes.
+Requires Python 3.10+; there are no third-party packages.
 
-The browser prototype uses local browser storage and a conservative built-in checker. The Python analyzer is a separate component; it is not currently connected to the web interface. Final decisions remain with a human reviewer.
+```powershell
+cd analysis
+python -m unittest -v
+```
 
-See [the frontend guide](frontend/README.md) for the user workflow and prototype boundaries, and [the analyzer guide](analysis%20part/README.md) for its input and output format.
+The current checker is rule-based. It is not an LLM, does not inspect images/video, and should be treated as a review aid rather than a truth oracle.
 
-The current submission summary is [VerityBrand Round 2 Submission](output/pdf/VerityBrand_Round_2_Submission.pdf).
+## Product roadmap and judge access
 
-
-## Supabase handoff
-
-Supabase is not connected in this version. The web app remains a static frontend; the included Pages workflow publishes it. For the current state and the work needed to connect a Supabase backend, see [the Supabase deployment handoff](SUPABASE_HANDOFF.md).
+See [docs/implementation/market-readiness-plan.md](docs/implementation/market-readiness-plan.md) for the staged implementation plan, handoff instructions, acceptance criteria, and a safe way to let judges try the product without exposing private customer data or privileged credentials.

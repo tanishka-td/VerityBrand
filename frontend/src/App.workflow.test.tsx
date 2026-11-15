@@ -28,18 +28,30 @@ describe('review workflow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apply this change to the draft' }))
     const editor = screen.getByRole('textbox', { name: 'Edit campaign caption' })
-    expect(editor).toHaveValue('Meet Daybreak Cold Brew: 250 ml with 80 mg of caffeine. Get 10% off through November 15, 2026!')
+    expect(editor).toHaveValue(DEMO_DRAFT.replace('20% off through November 30, 2026', '10% off through November 15, 2026'))
     await user.click(screen.getByText('Draft revision history'))
-    expect(screen.getByText(DEMO_DRAFT)).toBeInTheDocument()
+    expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === DEMO_DRAFT)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Check against sources' }))
     await screen.findByRole('button', { name: 'Run the check again' })
     expect(screen.getByText('Version 02')).toBeInTheDocument()
+
+    const cleanedDraft = DEMO_DRAFT
+      .replace('20% off through November 30, 2026', '10% off through November 15, 2026')
+      .replace('The Summer Blend is still available through August 31, 2026, and uses Guatemala beans.\n', '')
+      .replace('Daybreak is the best cold brew in the city.', '')
+      .trim()
+    await user.clear(editor)
+    await user.type(editor, cleanedDraft)
+    await user.click(screen.getByRole('button', { name: 'Check against sources' }))
+    await screen.findByRole('button', { name: 'Run the check again' })
+    expect(screen.getByText('Version 03')).toBeInTheDocument()
+
     await user.click(screen.getByLabelText('I reviewed the remaining copy and am comfortable approving this version.'))
     await user.click(screen.getByRole('button', { name: 'Approve this version' }))
 
     expect(screen.getByText('Version approved')).toBeInTheDocument()
-    expect(screen.getByText(/Final authorized approval.*Version 02/)).toBeInTheDocument()
+    expect(screen.getByText(/Final authorized approval.*Version 03/)).toBeInTheDocument()
   })
 
   it('records an exception without treating it as verification or final approval', async () => {
@@ -54,7 +66,7 @@ describe('review workflow', () => {
     expect(screen.getAllByText('Mismatch').length).toBeGreaterThan(0)
     expect(screen.getByText('Exception approved')).toBeInTheDocument()
     expect(screen.queryByText('The promotion matches the current approved offer.')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Approve this version' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Approve this version' })).not.toBeInTheDocument()
     expect(screen.queryByText('Version approved')).not.toBeInTheDocument()
   })
 

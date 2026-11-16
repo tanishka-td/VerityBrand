@@ -3,6 +3,7 @@ export type FindingCategory = 'product_fact' | 'promotion' | 'comparative_claim'
 
 export interface EvidenceSource {
   source_id: string
+  source_version_id?: string
   title: string
   text: string
   owner?: string
@@ -43,6 +44,7 @@ export interface AnalysisResult {
 }
 
 export type ReviewSnapshot = AnalysisResult & {
+  analysis_origin?: 'legacy_unverified' | 'browser_unverified' | 'server_analyzed'
   _reviewedContent: string
   _reviewedProfileId: string
   _reviewedSources: string

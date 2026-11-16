@@ -1,1 +1,4 @@
 project_id = "veritybrand"
+
+[functions.submit-review]
+verify_jwt = true

@@ -4,6 +4,71 @@ import { DEMO_DRAFT, DEMO_PROFILE } from '../data/demoKnowledge'
 import type { BrandProfile } from '../types'
 
 describe('analyzeDraft', () => {
+  const today = new Date().toISOString().slice(0, 10)
+  const shiftDate = (date: string, days: number) => {
+    const value = new Date(`${date}T00:00:00Z`)
+    value.setUTCDate(value.getUTCDate() + days)
+    return value.toISOString().slice(0, 10)
+  }
+  const sourceValidityProfile = (valid_from?: string, valid_through?: string): BrandProfile => ({
+    id: 'validity-brand',
+    name: 'Validity Brand',
+    sources: [{
+      source_id: 'validity-source',
+      title: 'Product facts',
+      text: 'Our coffee contains 80 mg of caffeine.',
+      ...(valid_from === undefined ? {} : { valid_from }),
+      ...(valid_through === undefined ? {} : { valid_through }),
+    }],
+  })
+
+  it('supports a claim using a source valid today', async () => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(shiftDate(today, -1), shiftDate(today, 1)))
+
+    expect(result.findings[0]).toMatchObject({ status: 'supported', evidence: [{ source_id: 'validity-source' }] })
+  })
+
+  it('does not use a future-dated source as evidence', async () => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(shiftDate(today, 1), shiftDate(today, 5)))
+
+    expect(result.findings[0]).toMatchObject({ status: 'unverified', evidence: [] })
+  })
+
+  it('keeps an expired source outdated instead of supporting the claim', async () => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(shiftDate(today, -5), shiftDate(today, -1)))
+
+    expect(result.findings[0]).toMatchObject({ status: 'outdated', evidence: [{ source_id: 'validity-source' }] })
+  })
+
+  it('treats missing validity dates as unbounded', async () => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile())
+
+    expect(result.findings[0]).toMatchObject({ status: 'supported', evidence: [{ source_id: 'validity-source' }] })
+  })
+
+  it.each([
+    ['invalid start date', '2026-02-30', shiftDate(today, 5)],
+    ['invalid end date', shiftDate(today, -5), 'not-a-date'],
+  ])('does not use a source with an %s as evidence', async (_label, validFrom, validThrough) => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(validFrom, validThrough))
+
+    expect(result.findings[0]).toMatchObject({ status: 'unverified', evidence: [] })
+  })
+
+  it('does not use a source whose validity range is reversed', async () => {
+    const result = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(shiftDate(today, 5), shiftDate(today, -5)))
+
+    expect(result.findings[0]).toMatchObject({ status: 'unverified', evidence: [] })
+  })
+
+  it('treats valid_from and valid_through as inclusive boundary dates', async () => {
+    const startsToday = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(today, shiftDate(today, 5)))
+    const endsToday = await analyzeDraft('Our coffee contains 80 mg of caffeine.', sourceValidityProfile(shiftDate(today, -5), today))
+
+    expect(startsToday.findings[0].status).toBe('supported')
+    expect(endsToday.findings[0].status).toBe('supported')
+  })
+
   it('checks Daybreak product claims and flags the offer mismatch with approved evidence', async () => {
     const result = await analyzeDraft(DEMO_DRAFT, DEMO_PROFILE)
     const volume = result.findings.find((finding) => finding.claim.includes('250 ml'))

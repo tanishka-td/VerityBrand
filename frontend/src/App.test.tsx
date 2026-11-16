@@ -119,6 +119,6 @@ describe('judge demo startup', () => {
     await user.click(screen.getByRole('button', { name: 'Send claim for review' }))
 
     expect(screen.queryByText(offerQuestion)).not.toBeInTheDocument()
-    expect(screen.getByText('“best” is a comparative claim, and no approved evidence for it was found.')).toBeInTheDocument()
+    expect(await screen.findByText('“best” is a comparative claim, and no approved evidence for it was found.')).toBeInTheDocument()
   })
 })

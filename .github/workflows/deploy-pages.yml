@@ -43,6 +43,9 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          # Optional and public by design. Set only after the isolated judge account is tested.
+          VITE_JUDGE_DEMO_EMAIL: ${{ vars.VITE_JUDGE_DEMO_EMAIL }}
+          VITE_JUDGE_DEMO_PASSWORD: ${{ vars.VITE_JUDGE_DEMO_PASSWORD }}
       - name: Prepare Pages
         uses: actions/configure-pages@v5
       - name: Upload site

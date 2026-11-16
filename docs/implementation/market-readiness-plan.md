@@ -14,7 +14,7 @@ The three submitted improvements are included in this plan and map to the phases
 2. **Stronger evidence-grounded AI analysis** — Phase 3 defines the authenticated analysis service, source-grounded findings, abstention, and an evaluation set. Automated analysis proposes findings; a person retains final approval.
 3. **Multimodal source and content review** — Phase 5 adds document extraction and image OCR with traceable page or image-region references. Video, audio, and broader visual interpretation remain later extensions.
 
-These are development commitments, not claims that the capabilities are already complete. The current browser checker remains rule-based. A first browser-local image OCR slice is now implemented, but document extraction, shared collaboration, and the authenticated evidence-grounded analysis service are still pending.
+These are development commitments, not claims that every capability is complete. The authenticated source-grounded analysis path is now implemented in the repository using deterministic rules, but it has not been deployed or runtime-verified and is not an LLM. A first browser-local image OCR slice is implemented. Full collaboration and document extraction remain pending.
 
 ## Keep the two entry views
 
@@ -33,9 +33,9 @@ The current schema has owner/editor/reviewer roles. Before relying on it for cus
 
 - The React 19, TypeScript, and Vite interface has distinct creator/reviewer and steward entry points, a Daybreak sample, local browser mode, and a Supabase client path.
 - A Supabase SQL migration defines workspaces, memberships, sources, drafts, revisions, reviews, findings, reviewer decisions, approvals, and RLS policies. This is a schema in the repository; it does not prove that a live project has been provisioned or deployed.
-- The web checker runs in the browser. It uses conservative rules and has a sample-specific Daybreak path plus a source-matching path for other profiles.
+- Browser-local reviews use a deterministic source-matching analyzer. Signed-in cloud reviews submit through the authenticated `submit-review` Edge Function, which loads persisted drafts and current source versions and signs server-generated findings before atomic persistence. This remains deterministic analysis, not an LLM, and is implemented in the repository but not verified against a deployed database or Edge Function.
 - A first English image-text extraction path uses Tesseract.js in the browser. It supports PNG/JPG/WebP uploads and the Daybreak sample creative, shows OCR confidence and selectable regions, and requires people to check extracted text before adding it to a draft. OCR is not visual analysis or verification; uploaded images are not persisted. The first use downloads the recognition engine and language data from a public CDN.
-- `analysis/analyzer.py` is a separate Python implementation with a documented profile/output contract. It is not connected to the frontend or a deployed API.
+- `analysis/analyzer.py` is a separate Python implementation with a documented profile/output contract. It is still not connected to the frontend or cloud Edge Function; browser-local review and the Edge Function share the TypeScript analyzer.
 - No service-role credential belongs in the frontend. No customer data should be used in the public judge sample.
 
 ## Implementation phases

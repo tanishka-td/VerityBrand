@@ -36,6 +36,8 @@ For GitHub Pages, add repository **Actions variables** (not secrets) named exact
 
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are also the only Supabase variables currently read by `frontend/src/services/supabase.ts`. The workflow deploys on a push to `main` or manual dispatch; this guide does not authorize a deployment.
 
+The auth screen also reads optional `VITE_JUDGE_DEMO_EMAIL` and `VITE_JUDGE_DEMO_PASSWORD` values. When both are set, it displays them publicly and offers a one-click sign-in. The Pages workflow passes them from GitHub Actions **variables**; add them there only after the account and its RLS isolation have been tested. They are public credentials, not secrets; never reuse any account that protects non-demo data. Leave both unset until the dedicated account is provisioned.
+
 ## Staging and release procedure
 
 1. Create/identify separate local, staging, production, and (if needed) demo Supabase projects. Keep customer data out of demo/staging.
@@ -43,7 +45,7 @@ For GitHub Pages, add repository **Actions variables** (not secrets) named exact
 3. Configure exact Auth Site URL/Redirect URLs and email confirmation settings for that environment; test signup, confirmation, sign-in, sign-out, refresh, and session expiry.
 4. Review pending migration versions and SQL against the target schema. The reported live initial version is `20261110173550`; do not replay the baseline. Apply pending versions in order only after the owner approves the remote operation.
 5. Run database pgTAP tests on a disposable local/staging database, then manually test a fresh anonymous browser, Owner, Editor, authorized Reviewer, unauthorized Reviewer, and two separate workspaces.
-6. Verify sample remains usable without login, authenticated records remain private, and the final approval ties to the exact checked revision. Verify server-side analysis is not claimed or enabled: it is not integrated yet.
+6. Verify the sample remains usable without login, authenticated records remain private, and final approval ties to the exact checked revision. Confirm cloud review invokes the deployed `submit-review` Edge Function and records `server_analyzed` provenance only after the signed database wrapper verifies it. If the function or migrations are unavailable, do not represent cloud analysis as trusted or deployed.
 7. Use GitHub Pages workflow only after repository variables and the target Supabase environment are verified. Inspect Actions build output and the published URL; then retest the published app.
 8. Record who approved each migration/deploy and the observed test result. This repository does not confirm live Auth, Pages variables, database policies, email delivery, backups, or deployment health.
 

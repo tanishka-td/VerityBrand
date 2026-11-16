@@ -6,6 +6,8 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
+const MAX_SUBMISSION_BYTES = 512 * 1024
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -23,6 +25,10 @@ Deno.serve(async (request) => {
   const authorization = request.headers.get('Authorization')
   const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
   if (!token) return json(401, { error: 'Authentication is required.' })
+  const declaredLength = Number(request.headers.get('Content-Length'))
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SUBMISSION_BYTES) {
+    return json(413, { error: 'This draft is too large to review. Shorten it and try again.' })
+  }
 
   try {
     const baseUrl = env('SUPABASE_URL')
@@ -34,14 +40,20 @@ Deno.serve(async (request) => {
     })
     const { data: authData, error: authError } = await userDb.auth.getUser(token)
     if (authError || !authData.user) return json(401, { error: 'Authentication is required.' })
-    const body = await request.json()
+    const rawBody = await request.text()
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_SUBMISSION_BYTES) {
+      return json(413, { error: 'This draft is too large to review. Shorten it and try again.' })
+    }
+    let body: unknown
+    try { body = JSON.parse(rawBody) } catch { return json(400, { error: 'The review submission must be valid JSON.' }) }
     if (!body || typeof body !== 'object'
-      || typeof body.workspace_id !== 'string'
-      || typeof body.draft_id !== 'string'
-      || typeof body.request_id !== 'string'
-      || typeof body.content !== 'string'
-      || !Array.isArray(body.expected_source_version_ids)
-      || body.expected_source_version_ids.some((id: unknown) => typeof id !== 'string')) {
+      || !('workspace_id' in body) || typeof body.workspace_id !== 'string' || !UUID_PATTERN.test(body.workspace_id)
+      || !('draft_id' in body) || typeof body.draft_id !== 'string' || !UUID_PATTERN.test(body.draft_id)
+      || !('request_id' in body) || typeof body.request_id !== 'string' || !UUID_PATTERN.test(body.request_id)
+      || !('content' in body) || typeof body.content !== 'string' || !body.content.trim()
+      || !('expected_source_version_ids' in body) || !Array.isArray(body.expected_source_version_ids)
+      || body.expected_source_version_ids.length > 500
+      || body.expected_source_version_ids.some((id: unknown) => typeof id !== 'string' || !UUID_PATTERN.test(id))) {
       return json(400, { error: 'The review submission request is malformed.' })
     }
     const input = {

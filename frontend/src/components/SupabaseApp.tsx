@@ -13,6 +13,7 @@ import { ReviewWorkspace } from './ReviewWorkspace'
 
 type Member = { workspace_id: string; user_id: string; member_role: WorkspaceRole; can_final_approve: boolean }
 type WorkspaceRow = { id: string; name: string }
+type WorkspaceAccess = { member: Member; workspace: WorkspaceRow }
 type DecisionRow = { finding_id: string; decision: Exclude<ReviewDecision, 'not_sent'>; note: string | null }
 
 type WorkspaceSection = 'review' | 'knowledge'
@@ -50,17 +51,33 @@ function AuthPanel({ initialSection, onTryDemo, onExit }: { initialSection: Work
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const demoEmail = import.meta.env.VITE_JUDGE_DEMO_EMAIL?.trim() ?? ''
+  const demoPassword = import.meta.env.VITE_JUDGE_DEMO_PASSWORD ?? ''
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!supabase) return
     setBusy(true); setMessage('')
-    const result = mode === 'sign-up'
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password })
-    setBusy(false)
-    if (result.error) setMessage(result.error.message)
-    else if (mode === 'sign-up' && !result.data.session) setMessage('Check your email to confirm your account, then sign in.')
+    try {
+      const result = mode === 'sign-up'
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password })
+      if (result.error) setMessage(result.error.message)
+      else if (mode === 'sign-up' && !result.data.session) setMessage('Check your email to confirm your account, then sign in.')
+    } catch {
+      setMessage('We could not reach sign-in. Check your connection and try again.')
+    } finally { setBusy(false) }
+  }
+
+  async function useDemoAccount() {
+    if (!supabase || !demoEmail || !demoPassword) return
+    setBusy(true); setMessage('')
+    try {
+      const result = await supabase.auth.signInWithPassword({ email: demoEmail, password: demoPassword })
+      if (result.error) setMessage(result.error.message)
+    } catch {
+      setMessage('The judge demo account could not sign in. Please try again later.')
+    } finally { setBusy(false) }
   }
 
   return <main className="auth-shell"><section className="auth-card">
@@ -72,13 +89,19 @@ function AuthPanel({ initialSection, onTryDemo, onExit }: { initialSection: Work
       <button className="primary-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'sign-in' ? 'Sign in' : 'Create account'}</button>
     </form>
     {message && <p role="status">{message}</p>}
+    {demoEmail && demoPassword && <section className="judge-demo-access" aria-label="Judge demo account">
+      <strong>Judge demo access</strong>
+      <p>Shared fictional workspace. These public credentials are for trying the judge demo.</p>
+      <dl><div><dt>Email</dt><dd>{demoEmail}</dd></div><div><dt>Password</dt><dd>{demoPassword}</dd></div></dl>
+      <button className="secondary-button" type="button" disabled={busy} onClick={() => void useDemoAccount()}>{busy ? 'Signing in…' : 'Use demo account'}</button>
+    </section>}
     <button className="text-button" type="button" onClick={() => { setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in'); setMessage('') }}>{mode === 'sign-in' ? 'Need an account? Sign up' : 'Already registered? Sign in'}</button>
     <button className="text-button" type="button" onClick={onTryDemo}>Try the Daybreak sample</button>
     <button className="text-button" type="button" onClick={onExit}>Choose a starting point</button>
   </section></main>
 }
 
-function CloudWorkspace({ session, member, workspace, initialSection, onSignOut, onExit, onTryDemo }: { session: Session; member: Member; workspace: WorkspaceRow; initialSection: WorkspaceSection; onSignOut: () => void; onExit: () => void; onTryDemo: () => void }) {
+function CloudWorkspace({ session, member, workspace, workspaceAccesses, onSelectWorkspace, initialSection, onSignOut, onExit, onTryDemo }: { session: Session; member: Member; workspace: WorkspaceRow; workspaceAccesses: WorkspaceAccess[]; onSelectWorkspace: (workspaceId: string) => void; initialSection: WorkspaceSection; onSignOut: () => void; onExit: () => void; onTryDemo: () => void }) {
   const db = supabase!
   const [profile, setProfile] = useState<BrandProfile>({ id: workspace.id, name: workspace.name, sources: [] })
   const [draftId, setDraftId] = useState<string | null>(null)
@@ -244,7 +267,7 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
   if (loading) return <main className="auth-shell"><p role="status">Loading your workspace…</p></main>
 
   return <div className="app-shell"><aside className="sidebar"><button className="brand-lockup brand-home-button" type="button" title="Choose a starting point" onClick={onExit}>VerityBrand</button>
-    <div className="workspace-switcher"><span className="workspace-avatar">{workspace.name.slice(0, 1).toUpperCase()}</span><div className="workspace-name"><strong>{workspace.name}</strong><small>{member.member_role} · {profile.sources.length} approved source{profile.sources.length === 1 ? '' : 's'}</small></div></div>
+    <div className="workspace-switcher"><span className="workspace-avatar">{workspace.name.slice(0, 1).toUpperCase()}</span><div className="workspace-name">{workspaceAccesses.length > 1 ? <><label className="visually-hidden" htmlFor="workspace-select">Brand workspace</label><select id="workspace-select" aria-label="Brand workspace" value={workspace.id} onChange={(event) => onSelectWorkspace(event.target.value)}>{workspaceAccesses.map((access) => <option key={access.workspace.id} value={access.workspace.id}>{access.workspace.name} · {access.member.member_role}</option>)}</select></> : <strong>{workspace.name}</strong>}<small>{member.member_role} · {profile.sources.length} approved source{profile.sources.length === 1 ? '' : 's'}</small></div></div>
     <div className={`sidebar-role-card sidebar-role-${sidebarMode}`}>
       <div className="sidebar-role-eyebrow"><Icon name={sidebarMode === 'steward' ? 'library' : 'review'} size={14} />{sidebarMode === 'steward' ? 'BRAND STEWARD' : 'CREATOR & REVIEWER'}</div>
       <strong>{sidebarMode === 'steward' ? 'Source cabinet' : 'Review desk'}</strong>
@@ -268,19 +291,27 @@ export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSect
   const [loading, setLoading] = useState(true)
   const [member, setMember] = useState<Member | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceRow | null>(null)
+  const [workspaceAccesses, setWorkspaceAccesses] = useState<WorkspaceAccess[]>([])
   const [error, setError] = useState('')
-  const bootstrapTasks = useRef(new Map<string, Promise<{ member: Member; workspace: WorkspaceRow }>>())
+  const bootstrapTasks = useRef(new Map<string, Promise<WorkspaceAccess[]>>())
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false) })
+    let active = true
+    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (!active) return
+      if (sessionError) setError('We could not restore your sign-in. Please try signing in again.')
+      setSession(data.session)
+    }).catch(() => {
+      if (active) setError('We could not restore your sign-in. Please try signing in again.')
+    }).finally(() => { if (active) setLoading(false) })
     const { data: listener } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, next) => {
       if (!next) bootstrapTasks.current.clear()
-      setSession(next)
+      if (active) setSession(next)
     })
-    return () => listener.subscription.unsubscribe()
+    return () => { active = false; listener.subscription.unsubscribe() }
   }, [])
   useEffect(() => {
-    if (!session || !supabase) { setMember(null); setWorkspace(null); setLoading(false); return }
+    if (!session || !supabase) { setMember(null); setWorkspace(null); setWorkspaceAccesses([]); setLoading(false); return }
     let active = true
     setLoading(true); setError('')
     const userId = session.user.id
@@ -290,10 +321,11 @@ export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSect
         const memberships = await supabase!.from('workspace_members').select('workspace_id,user_id,member_role,can_final_approve').eq('user_id', userId)
         if (memberships.error) throw memberships.error
         if (memberships.data?.length) {
-          const selected = memberships.data[0] as Member
-          const workspaceResult = await supabase!.from('workspaces').select('id,name').eq('id', selected.workspace_id).single()
-          if (workspaceResult.error) throw workspaceResult.error
-          return { member: selected, workspace: workspaceResult.data as WorkspaceRow }
+          return Promise.all((memberships.data as Member[]).map(async (access) => {
+            const result = await supabase!.from('workspaces').select('id,name').eq('id', access.workspace_id).single()
+            if (result.error) throw result.error
+            return { member: access, workspace: result.data as WorkspaceRow }
+          }))
         }
 
         // Reuse any workspace left by an interrupted prior bootstrap instead of creating duplicates.
@@ -306,22 +338,34 @@ export function SupabaseApp({ initialSection, onTryDemo, onExit }: { initialSect
           workspace = created.data as WorkspaceRow
         }
         const owner = await createInitialOwnerMembership(supabase!, workspace.id, userId)
-        return { member: owner as Member, workspace }
+        return [{ member: owner as Member, workspace }]
       })()
       bootstrapTasks.current.set(userId, task)
       void task.catch(() => bootstrapTasks.current.delete(userId))
     }
     void task.then((loaded) => {
-      if (active) { setMember(loaded.member); setWorkspace(loaded.workspace) }
+      if (active) {
+        setWorkspaceAccesses(loaded)
+        let preferredId = ''
+        try { preferredId = localStorage.getItem(`veritybrand:selected-workspace:${userId}`) ?? '' } catch { /* Workspace selection can still use the first membership. */ }
+        const selected = loaded.find((access) => access.workspace.id === preferredId) ?? loaded[0]
+        if (selected) { setMember(selected.member); setWorkspace(selected.workspace) }
+      }
     }).catch((e) => {
       if (active) setError(e instanceof Error ? e.message : 'Could not load workspace.')
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [session?.user.id])
+  function selectWorkspace(workspaceId: string) {
+    const selected = workspaceAccesses.find((access) => access.workspace.id === workspaceId)
+    if (!selected) return
+    setMember(selected.member); setWorkspace(selected.workspace)
+    try { if (session) localStorage.setItem(`veritybrand:selected-workspace:${session.user.id}`, workspaceId) } catch { /* Keep the selected workspace for this session. */ }
+  }
   if (!supabase) return <main className="auth-shell"><section className="auth-card"><h1>Supabase is not configured</h1><p>Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in frontend/.env.local.</p></section></main>
   if (loading) return <main className="auth-shell"><p role="status">Loading account…</p></main>
   if (!session) return <>{error && <p role="alert">{error}</p>}<AuthPanel initialSection={initialSection} onTryDemo={onTryDemo} onExit={onExit} /></>
   if (error) return <main className="auth-shell"><section><p role="alert">{error}</p><button onClick={() => void supabase!.auth.signOut()}>Sign out</button></section></main>
   if (!workspace || !member) return <main className="auth-shell"><p role="status">Setting up workspace…</p></main>
-  return <CloudWorkspace key={workspace.id} session={session} member={member} workspace={workspace} initialSection={initialSection} onSignOut={() => void supabase!.auth.signOut()} onExit={onExit} onTryDemo={onTryDemo} />
+  return <CloudWorkspace key={workspace.id} session={session} member={member} workspace={workspace} workspaceAccesses={workspaceAccesses} onSelectWorkspace={selectWorkspace} initialSection={initialSection} onSignOut={() => void supabase!.auth.signOut()} onExit={onExit} onTryDemo={onTryDemo} />
 }

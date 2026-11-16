@@ -47,6 +47,12 @@ For GitHub Pages, add repository **Actions variables** (not secrets) named exact
 7. Use GitHub Pages workflow only after repository variables and the target Supabase environment are verified. Inspect Actions build output and the published URL; then retest the published app.
 8. Record who approved each migration/deploy and the observed test result. This repository does not confirm live Auth, Pages variables, database policies, email delivery, backups, or deployment health.
 
+## Public judge demo account requirement
+
+The Round 3 judge link must show a dedicated demo account's email and password directly on the website, with a clear way to use the credentials. These are intentionally public demo credentials, not secrets. Provision the account only in a separate demo Supabase project and restrict it to synthetic judge data and the minimum role/permissions needed to try the submitted workflow. Never reuse a team member's account, customer workspace, development/production account, service-role key, or privileged provider credential.
+
+Before publishing the credentials, verify sign-in and the full judge journey in a clean browser, confirm RLS prevents access to all non-demo workspaces, and establish a safe reset/recovery process for shared edits plus appropriate rate limiting. If those controls or a working demo account are not ready, do not display placeholder or fabricated credentials; record the judge-account requirement as unfinished until the isolated account is provisioned and verified.
+
 ## Runtime and test limitation
 
 The project owner reports Docker Desktop is unavailable. Prior local checks found no usable Docker engine pipe, no WSL access, and no local `psql`/`pg_ctl`; do not keep retrying Docker. Supabase CLI `test db` requires a running local Supabase/Postgres stack, so no database assertions have been represented as passing. Use an approved disposable PostgreSQL/Supabase CI runner or staging project only after explicitly provisioning and authorizing it; do not use the production/live project for tests. See [database review](supabase-database-review.md) for static findings and the exact verification steps.

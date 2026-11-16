@@ -41,6 +41,12 @@ function analyzeForProfile(content: string, profile: BrandProfile, asOf: string)
       : /\b(?:best|leading|number\s+one|no\.?\s*1|top[- ]rated)\b/i.test(claim) ? 'comparative_claim'
         : /\d/.test(claim) ? 'product_fact' : 'product_fact'
     const isOffer = category === 'promotion'
+    // OCR often turns decorative headings such as "November offer" into a
+    // finding. They contain no offer terms for the checker to verify.
+    const offerHeading = isOffer && !/\d/.test(claim) && meaningfulWords(claim).size <= 3
+      && /\b(?:offer|discount|promotion|sale)\b/i.test(claim)
+      && !/\b(?:is|are|ends?|expires?|gives?|gets?|save|includes?)\b/i.test(claim.replace(/\b(?:offer|discount|promotion|sale)\b/i, ''))
+    if (offerHeading) continue
     const isComparative = category === 'comparative_claim'
     const ranked = profile.sources.map((source) => ({ source, ...sourceOverlap(claim, source) }))
       .filter((item) => isComparative

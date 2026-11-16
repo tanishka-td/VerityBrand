@@ -79,4 +79,23 @@ describe('analyzeDraft', () => {
 
     expect(promotion).toMatchObject({ status: 'unverified', requires_human_review: true })
   })
+
+  it('does not treat an OCR offer heading as an approved claim', async () => {
+    const extractedImageText = [
+      'DAYBREAK COFFEE',
+      'NOVEMBER OFFER Ei',
+      '20% OFF',
+      'THROUGH NOVEMBER 30, 2026',
+      'BEST COLD BREW IN THE CITY',
+      '250 ML CAN - 80 MG CAFFEINE',
+    ].join('\n')
+    const result = await analyzeDraft(extractedImageText, DEMO_PROFILE)
+
+    expect(result.findings.some((finding) => /november offer/i.test(finding.claim))).toBe(false)
+    expect(result.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ claim: '20% OFF', status: 'contradicted' }),
+      expect.objectContaining({ claim: 'BEST COLD BREW IN THE CITY', status: 'unverified', evidence: [] }),
+      expect.objectContaining({ claim: '250 ML CAN - 80 MG CAFFEINE', status: 'supported' }),
+    ]))
+  })
 })

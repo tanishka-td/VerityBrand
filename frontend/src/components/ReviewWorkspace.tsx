@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from '../types'
+import { extractImageText } from '../services/imageOcr'
+import type { ImageOcrResult, OcrProgress } from '../services/imageOcr'
 import { Icon } from './Icon'
 
 interface Props {
@@ -69,6 +71,10 @@ function correctionPreview(finding: Finding): string | null {
 
 export function ReviewWorkspace(props: Props) {
   const [importMessage, setImportMessage] = useState('')
+  const [creative, setCreative] = useState<{ name: string; previewUrl: string; result?: ImageOcrResult; text: string; confirmed: boolean; error?: string } | null>(null)
+  const [ocrProgress, setOcrProgress] = useState<OcrProgress>({ status: 'Preparing image', percent: 0 })
+  const [selectedOcrParagraph, setSelectedOcrParagraph] = useState(0)
+  const ocrRequest = useRef(0)
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const {
     brandName, isSample, sourceCount, draft, setDraft, analysis, selectedFinding, onSelectFinding, isChecking, dirty, decision,
@@ -84,6 +90,22 @@ export function ReviewWorkspace(props: Props) {
   const correction = selectedFinding ? correctionPreview(selectedFinding) : null
   const approvedRevisionNumber = revisions.findIndex((revision) => revision.id === approvedRevisionId) + 1
   const displayStatus = approved ? 'Approved' : dirty ? 'Draft changed' : noCoverage ? manualReviewRequested ? 'Manual review open' : 'Needs a closer look' : allClear ? 'Ready for your sign-off' : analysis ? 'Waiting on a person' : 'Ready to check'
+
+  useEffect(() => () => {
+    if (creative?.previewUrl) URL.revokeObjectURL(creative.previewUrl)
+  }, [creative?.previewUrl])
+
+  useEffect(() => {
+    if (!selectedFinding || !creative?.result?.paragraphs.length) return
+    const claimWords = new Set(selectedFinding.claim.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    const best = creative.result.paragraphs
+      .map((paragraph, index) => {
+        const words = new Set(paragraph.text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+        return { index, score: [...claimWords].filter((word) => words.has(word)).length / Math.max(1, claimWords.size) }
+      })
+      .sort((a, b) => b.score - a.score)[0]
+    if (best && best.score >= .55) setSelectedOcrParagraph(best.index)
+  }, [selectedFinding?.id, creative?.result])
 
   async function importCopy(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
@@ -104,6 +126,45 @@ export function ReviewWorkspace(props: Props) {
     } catch {
       setImportMessage('We could not read that file. Try a .txt or .md file.')
     }
+  }
+
+  async function readCreative(file: File) {
+    const requestId = ++ocrRequest.current
+    const previewUrl = URL.createObjectURL(file)
+    setCreative({ name: file.name, previewUrl, text: '', confirmed: false })
+    setSelectedOcrParagraph(0)
+    setOcrProgress({ status: 'Preparing image', percent: 0 })
+    try {
+      const result = await extractImageText(file, setOcrProgress)
+      if (requestId !== ocrRequest.current) return
+      setCreative({ name: file.name, previewUrl, result, text: result.text, confirmed: false })
+    } catch (error) {
+      if (requestId !== ocrRequest.current) return
+      setCreative({ name: file.name, previewUrl, text: '', confirmed: false, error: error instanceof Error ? error.message : 'We could not read text from this image.' })
+    }
+  }
+
+  async function importCreative(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (file) await readCreative(file)
+  }
+
+  async function openDaybreakCreative() {
+    try {
+      const response = await fetch(`${import.meta.env.BASE_URL}daybreak-social-creative.svg`)
+      if (!response.ok) throw new Error('The Daybreak creative could not be loaded. Try importing an image instead.')
+      await readCreative(new File([await response.blob()], 'daybreak-social-creative.svg', { type: 'image/svg+xml' }))
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : 'The Daybreak creative could not be loaded.')
+    }
+  }
+
+  function useExtractedText(append: boolean) {
+    if (!creative?.text.trim() || !creative.confirmed) return
+    const nextDraft = append && draft.trim() ? `${draft.trim()}\n\n${creative.text.trim()}` : creative.text.trim()
+    setDraft(nextDraft)
+    setImportMessage(append && draft.trim() ? 'Image text added to the working copy. Run a fresh check.' : 'Image text is now the working copy. Run a fresh check.')
   }
 
   function jumpToSelectedClaim() {
@@ -157,12 +218,25 @@ export function ReviewWorkspace(props: Props) {
           <span className="plain-tag">PLAIN TEXT</span>
         </div>
         <div className="editor-paper">
-          <div className="editor-meta"><span><Icon name="file" size={15} />{brandName.toUpperCase()} / WORKING COPY</span><div className="editor-meta-tools"><span>TEXT</span><label className="file-import" htmlFor="copy-upload"><input id="copy-upload" type="file" accept=".txt,.md,text/plain,text/markdown" onChange={importCopy} /><Icon name="external" size={12} />Import .txt / .md</label></div></div>
+          <div className="editor-meta"><span><Icon name="file" size={15} />{brandName.toUpperCase()} / WORKING COPY</span><div className="editor-meta-tools"><span>TEXT</span><label className="file-import" htmlFor="copy-upload"><input id="copy-upload" type="file" accept=".txt,.md,text/plain,text/markdown" onChange={importCopy} /><Icon name="external" size={12} />Import .txt / .md</label><label className="file-import image-import" htmlFor="image-upload"><input id="image-upload" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onChange={importCreative} /><Icon name="spark" size={12} />Read image text</label>{isSample && <button type="button" className="file-import image-import" onClick={() => void openDaybreakCreative()}><Icon name="spark" size={12} />Try Daybreak creative</button>}</div></div>
           <label className="visually-hidden" htmlFor="draft-input">Edit campaign caption</label>
           <textarea id="draft-input" ref={editorRef} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Paste your campaign copy or claim here…" spellCheck readOnly={!canEditContent} />
           <div className="editor-footer"><span>{draft.trim() ? draft.trim().split(/\s+/).length : 0} words</span><span>{draft.length} characters</span><span className={`saved-indicator ${dirty ? 'is-dirty' : ''}`}><span />{dirty ? 'Needs a fresh check' : analysis ? 'This version was checked' : 'Waiting for first check'}</span></div>
         </div>
         {importMessage && <div className="import-message" role="status">{importMessage}</div>}
+
+        {creative && <section className="creative-ocr" aria-label="Image text extraction">
+          <div className="creative-ocr-heading"><div><span>IMAGE TEXT · ENGLISH OCR</span><strong>{creative.name}</strong></div><button type="button" className="text-button" onClick={() => { ocrRequest.current += 1; setCreative(null) }}>Remove image</button></div>
+          {creative.error ? <p className="ocr-error" role="alert">{creative.error}</p> : !creative.result ? <div className="ocr-progress" role="status"><span className="spinner"/><div><strong>{ocrProgress.status === 'loading language traineddata' ? 'Preparing English text recognition' : ocrProgress.status === 'recognizing text' ? `Reading image text · ${ocrProgress.percent}%` : 'Preparing the image'}</strong><span>First use downloads the recognition engine. The image stays in this browser.</span></div></div> : <div className="creative-ocr-content">
+            <div className="creative-preview"><img src={creative.previewUrl} alt={`Uploaded campaign image: ${creative.name}`} />{creative.result.paragraphs.map((paragraph, index) => <button key={`${paragraph.text}-${index}`} type="button" className={`ocr-region ${selectedOcrParagraph === index ? 'is-selected' : ''}`} style={{ left: `${paragraph.box.x0 / creative.result!.width * 100}%`, top: `${paragraph.box.y0 / creative.result!.height * 100}%`, width: `${(paragraph.box.x1 - paragraph.box.x0) / creative.result!.width * 100}%`, height: `${(paragraph.box.y1 - paragraph.box.y0) / creative.result!.height * 100}%` }} aria-label={`Show extracted text region ${index + 1}`} aria-pressed={selectedOcrParagraph === index} onClick={() => setSelectedOcrParagraph(index)} />)}</div>
+            <div className="creative-ocr-copy"><div className="ocr-confidence"><span>OVERALL OCR CONFIDENCE</span><strong>{creative.result.confidence}%</strong></div><p>OCR reads visible words; it does not understand or verify the image. Check the text below against the creative before using it.</p><textarea aria-label="Extracted image text" value={creative.text} onChange={(event) => setCreative({ ...creative, text: event.target.value, confirmed: false })} rows={5} />
+              {creative.result.paragraphs.length > 0 && <div className="ocr-regions" aria-label="Extracted text regions">{creative.result.paragraphs.map((paragraph, index) => <button key={`${paragraph.text}-${index}`} type="button" className={selectedOcrParagraph === index ? 'is-selected' : ''} onClick={() => setSelectedOcrParagraph(index)}><span>{paragraph.confidence}%</span>{paragraph.text}</button>)}</div>}
+              <label className="ocr-confirm"><input type="checkbox" checked={creative.confirmed} onChange={(event) => setCreative({ ...creative, confirmed: event.target.checked })} /><span>I checked the extracted words against the image.</span></label>
+              <div className="ocr-actions"><button type="button" className="primary-button" disabled={!creative.confirmed || !creative.text.trim()} onClick={() => useExtractedText(false)}>Use image text as draft</button><button type="button" className="secondary-button" disabled={!creative.confirmed || !creative.text.trim()} onClick={() => useExtractedText(true)}>Add to current draft</button></div>
+              <small>The image is kept in this tab only. The text becomes part of the draft when you choose an action above.</small>
+            </div>
+          </div>}
+        </section>}
 
         {selectedFinding && analysis && !noCoverage && <div className="draft-annotation">
           <span className="annotation-pin"><Icon name="pin" size={15} /></span>

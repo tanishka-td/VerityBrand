@@ -6,6 +6,16 @@ This document is the implementation brief for taking the current prototype to a 
 
 VerityBrand gives a content creator a clear review of campaign claims against approved sources, gives brand stewards a separate place to maintain those sources, and lets an authorized person make and record the final decision. A source match is evidence for a reviewer, not automatic permission to publish. Missing or ambiguous evidence must be called **unverified**, never silently treated as false.
 
+## Round 3 commitments from the Round 2 submission
+
+The three submitted improvements are included in this plan and map to the phases below:
+
+1. **Shared workspaces and real collaboration** — Phase 2 defines secure shared persistence and membership; Phase 4 completes draft ownership, reviewer assignment, decisions, and notifications.
+2. **Stronger evidence-grounded AI analysis** — Phase 3 defines the authenticated analysis service, source-grounded findings, abstention, and an evaluation set. Automated analysis proposes findings; a person retains final approval.
+3. **Multimodal source and content review** — Phase 5 adds document extraction and image OCR with traceable page or image-region references. Video, audio, and broader visual interpretation remain later extensions.
+
+These are development commitments, not claims that the capabilities are already complete. The current browser checker remains rule-based. A first browser-local image OCR slice is now implemented, but document extraction, shared collaboration, and the authenticated evidence-grounded analysis service are still pending.
+
 ## Keep the two entry views
 
 Keep two distinct starting points: **Content review** for creators and reviewers, and **Approved sources** for brand stewards. Give each view a tailored sign-in entry and navigation, but use one account identity and one authentication system underneath. The chosen entry point is a landing context, not an authorization check. Enforce permissions from the signed-in user's workspace role in database policies and in the interface.
@@ -24,6 +34,7 @@ The current schema has owner/editor/reviewer roles. Before relying on it for cus
 - The React 19, TypeScript, and Vite interface has distinct creator/reviewer and steward entry points, a Daybreak sample, local browser mode, and a Supabase client path.
 - A Supabase SQL migration defines workspaces, memberships, sources, drafts, revisions, reviews, findings, reviewer decisions, approvals, and RLS policies. This is a schema in the repository; it does not prove that a live project has been provisioned or deployed.
 - The web checker runs in the browser. It uses conservative rules and has a sample-specific Daybreak path plus a source-matching path for other profiles.
+- A first English image-text extraction path uses Tesseract.js in the browser. It supports PNG/JPG/WebP uploads and the Daybreak sample creative, shows OCR confidence and selectable regions, and requires people to check extracted text before adding it to a draft. OCR is not visual analysis or verification; uploaded images are not persisted. The first use downloads the recognition engine and language data from a public CDN.
 - `analysis/analyzer.py` is a separate Python implementation with a documented profile/output contract. It is not connected to the frontend or a deployed API.
 - No service-role credential belongs in the frontend. No customer data should be used in the public judge sample.
 
@@ -84,12 +95,13 @@ The current schema has owner/editor/reviewer roles. Before relying on it for cus
 
 **Exit criteria:** one user can complete the whole flow; separate creator and steward users can collaborate across accounts; audit history remains consistent through revision and recheck.
 
-### Phase 5 — File ingestion and multimodal work (after text path is reliable)
+### Phase 5 — File ingestion and multimodal work (in progress)
 
-1. Add safe text/Markdown and PDF/DOCX extraction first, with page/paragraph offsets and citation pointers.
-2. Add campaign image OCR/visual inspection only when each claim can be linked back to a visible region. Treat extracted text as a candidate requiring evidence checks.
-3. Consider video, audio, localization, and social-platform connectors as later extensions. Do not promise multimodal review before file handling, privacy controls, and evidence traceability are verified.
-4. Keep raw files private, isolate processing jobs, validate formats and limits, and provide delete/retention controls.
+1. Harden the initial browser-local image OCR slice: test real campaign images, improve low-confidence handling, and carry confirmed OCR text and region pointers into evidence findings without treating OCR as proof.
+2. Add safe PDF/DOCX extraction with page/paragraph offsets and citation pointers; retain existing text/Markdown import.
+3. Add deeper campaign image review only when each claim can be linked back to a visible region. Treat extracted text as a candidate requiring evidence checks.
+4. Consider video, audio, localization, and social-platform connectors as later extensions. Do not promise multimodal review before file handling, privacy controls, and evidence traceability are verified.
+5. Keep raw files private, isolate processing jobs, validate formats and limits, and provide delete/retention controls.
 
 **Exit criteria:** users can inspect exactly where extracted content came from, and errors or unsupported formats fail safely without losing the draft.
 
@@ -137,6 +149,8 @@ The review view should make the example self-explanatory: a compact four-outcome
 
 Use a fixed `as_of` date for this fictional scenario so offer and expiry results do not change between judging sessions. Keep the source validity dates, campaign copy, expected findings, and regression assertions together as one fixture. Add an automated check that the sample produces one of each expected status and that evidence points to the product, offer, and expired seasonal references; the unverified claim must have no unrelated source attached.
 
+Keep the existing text campaign as the first guided path, and add an optional Daybreak social creative for multimodal review. The creative should visibly contain the same fictional offer mismatch and unsupported comparative claim, so the judge can compare the image with the approved offer and brand sources. OCR text must be shown as extracted content with a confidence cue and a way to inspect the image; uncertain or unreadable text must be called out for human confirmation. OCR is text extraction, not visual truth verification: the system must not infer product facts from appearance, approve a logo or design automatically, or treat an OCR result as evidence. The four evidence outcomes and human sign-off remain grounded in the approved source cabinet. Keep the text-only path available for visitors who do not want to upload or inspect an image.
+
 For a public judge link, use browser-local sample data or a read-only demo path with no shared anonymous writes. Keep authenticated creator/reviewer and brand-steward entry points available separately, using only a dedicated demo Supabase project and synthetic data for any signed-in judge access.
 
 **Judge acceptance checklist:** public URL opens; sample is discoverable without assistance; creator and steward entry routes are distinct; unconfigured/local mode explains that data stays in that browser; authenticated mode has tested RLS; sample facts and sources are fictional; checks show source evidence; exceptions remain distinguishable; final approval is a human action; no secret is present in built assets or browser storage.
@@ -157,4 +171,4 @@ For a public judge link, use browser-local sample data or a read-only demo path 
 - The web checker and Python analyzer are separate implementations; neither should be marketed as a general AI fact-checker.
 - A committed migration does not establish that a live Supabase project has been provisioned, configured, deployed, or security-reviewed.
 - A publishable key can be visible in a public web build. Security comes from tested RLS, grants, server-side secret handling, and data separation—not from hiding the public key.
-- Image/video analysis, production notifications, broad integrations, and market-scale operations are not established by the current prototype.
+- OCR is limited to English text extraction from images in the current browser tab; it does not interpret visuals, documents, video, or audio. Production notifications, broad integrations, and market-scale operations are not established by the current prototype.

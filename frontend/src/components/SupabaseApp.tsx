@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { supabase } from '../services/supabase'
-import { analyzeDraft } from '../services/reviewApi'
 import { createInitialOwnerMembership } from '../services/workspaceBootstrap'
 import { getWorkspacePermissions } from '../services/workspacePermissions'
+import { createReviewSubmission } from '../services/reviewSubmission'
 import type { WorkspaceRole } from '../services/workspacePermissions'
 import type { BrandProfile, DraftRevision, Finding, ReviewDecision, ReviewSnapshot } from '../types'
 import { Icon } from './Icon'
@@ -16,6 +16,33 @@ type WorkspaceRow = { id: string; name: string }
 type DecisionRow = { finding_id: string; decision: Exclude<ReviewDecision, 'not_sent'>; note: string | null }
 
 type WorkspaceSection = 'review' | 'knowledge'
+
+async function loadSourceProfile(db: NonNullable<typeof supabase>, workspaceId: string, workspaceName: string): Promise<BrandProfile> {
+  const sourcesRes = await db.from('approved_sources').select('*').eq('workspace_id', workspaceId).eq('is_active', true).order('created_at')
+  if (sourcesRes.error) throw sourcesRes.error
+  const sourceRows = sourcesRes.data ?? []
+  const versionIds = sourceRows.map((source: any) => source.current_version_id)
+  const versionsRes = versionIds.length
+    ? await db.from('approved_source_versions').select('*').eq('workspace_id', workspaceId).in('id', versionIds)
+    : { data: [], error: null }
+  if (versionsRes.error) throw versionsRes.error
+  const versionsById = new Map((versionsRes.data ?? []).map((version: any) => [version.id, version]))
+  const sources = sourceRows.map((source: any) => {
+    const version = versionsById.get(source.current_version_id) as any
+    if (!version || !version.is_active) throw new Error('A current source version could not be loaded. Refresh the workspace before reviewing.')
+    return {
+      source_id: source.id,
+      source_version_id: version.id,
+      title: version.title,
+      text: version.source_text,
+      owner: version.owner_label ?? undefined,
+      kind: version.kind ?? undefined,
+      valid_from: version.valid_from ?? undefined,
+      valid_through: version.valid_through ?? undefined,
+    }
+  })
+  return { id: workspaceId, name: workspaceName, sources }
+}
 
 function AuthPanel({ initialSection, onTryDemo, onExit }: { initialSection: WorkspaceSection; onTryDemo: () => void; onExit: () => void }) {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
@@ -71,26 +98,29 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const draftSaveQueue = useRef<Promise<void>>(Promise.resolve())
+  const draftValue = useRef(draft)
+  const reviewSubmitter = useRef<ReturnType<typeof createReviewSubmission> | null>(null)
+  if (!reviewSubmitter.current) reviewSubmitter.current = createReviewSubmission(db)
   const permissions = getWorkspacePermissions(member)
   const { canEditContent, canManageSources, canMakeDecisions, canApproveFinal } = permissions
 
   async function load() {
     setLoading(true); setError(''); setActivity([])
     try {
-      const [sourcesRes, draftsRes] = await Promise.all([
-        db.from('approved_sources').select('*').eq('workspace_id', workspace.id).order('created_at'),
+      const [sourceProfile, draftsRes] = await Promise.all([
+        loadSourceProfile(db, workspace.id, workspace.name),
         db.from('drafts').select('*').eq('workspace_id', workspace.id).order('updated_at', { ascending: false }).limit(1),
       ])
-      if (sourcesRes.error) throw sourcesRes.error
       if (draftsRes.error) throw draftsRes.error
-      setProfile({ id: workspace.id, name: workspace.name, sources: (sourcesRes.data ?? []).map((s: any) => ({ source_id: s.id, title: s.title, text: s.source_text, owner: s.owner_label ?? undefined, kind: s.kind ?? undefined, valid_from: s.valid_from ?? undefined, valid_through: s.valid_through ?? undefined })) })
+      setProfile(sourceProfile)
       let row = draftsRes.data?.[0]
       if (!row && canEditContent) {
         const created = await db.from('drafts').insert({ workspace_id: workspace.id, content: '', created_by: session.user.id }).select().single()
         if (created.error) throw created.error
         row = created.data
       }
-      if (row) { setDraftId(row.id); setDraft(row.content) }
+      if (row) { setDraftId(row.id); draftValue.current = row.content; setDraft(row.content) }
       if (row) {
         const revRes = await db.from('draft_revisions').select('*, reviews(*, findings(*), final_approvals(*))').eq('workspace_id', workspace.id).eq('draft_id', row.id).order('revision_number')
         if (revRes.error) throw revRes.error
@@ -107,7 +137,7 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
           const review = rev.reviews?.[0]
           const findings: Finding[] = (review?.findings ?? []).map((f: any) => ({ id: f.id, claim: f.claim, category: f.category, status: f.status, severity: f.severity, explanation: f.explanation, evidence: f.evidence ?? [], suggested_action: f.suggested_action ?? '', reviewer_role: f.reviewer_role, reviewer_question: f.reviewer_question, requires_human_review: f.requires_human_review }))
           const summary = review?.summary ?? { supported: 0, contradicted: 0, outdated: 0, unverified: 0 }
-          const snap: ReviewSnapshot = { brand_name: workspace.name, review_date: review?.review_date ?? rev.created_at.slice(0, 10), overall_status: review?.overall_status ?? 'needs_human_review', final_approval_required: true, summary, findings, analysis_note: review?.analysis_note ?? undefined, _reviewedContent: rev.content, _reviewedProfileId: workspace.id, _reviewedSources: JSON.stringify(review?.sources_snapshot ?? []) }
+          const snap: ReviewSnapshot = { brand_name: workspace.name, review_date: review?.review_date ?? rev.created_at.slice(0, 10), overall_status: review?.overall_status ?? 'needs_human_review', final_approval_required: true, summary, findings, analysis_note: review?.analysis_note ?? undefined, analysis_origin: review?.analysis_origin ?? 'legacy_unverified', _reviewedContent: rev.content, _reviewedProfileId: workspace.id, _reviewedSources: JSON.stringify(review?.sources_snapshot ?? []) }
           return { id: rev.id, content: rev.content, checked_at: rev.created_at, analysis: snap }
         })
         setRevisions(nextRevisions); setDecisions(nextDecisions)
@@ -133,10 +163,15 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
   useEffect(() => { void load() }, [workspace.id])
 
   async function persistDraft(value: string) {
+    draftValue.current = value
     setDraft(value); setApproved(false); setApprovedRevisionId(null)
     if (!draftId || !canEditContent) return
-    const { error: saveError } = await db.from('drafts').update({ content: value }).eq('id', draftId).eq('workspace_id', workspace.id)
-    if (saveError) setError(saveError.message)
+    const save = draftSaveQueue.current.catch(() => undefined).then(async () => {
+      const { error: saveError } = await db.from('drafts').update({ content: value }).eq('id', draftId).eq('workspace_id', workspace.id)
+      if (saveError) throw saveError
+    })
+    draftSaveQueue.current = save
+    void save.catch((saveError: unknown) => setError(saveError instanceof Error ? saveError.message : 'Could not save the draft.'))
   }
   async function saveProfile(next: BrandProfile) {
     if (!canManageSources) return
@@ -145,14 +180,13 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
       if (next.name !== profile.name) { const res = await db.from('workspaces').update({ name: next.name }).eq('id', workspace.id); if (res.error) throw res.error }
       const existing = new Set(profile.sources.map(s => s.source_id))
       const retained = new Set(next.sources.map(s => s.source_id))
-      for (const old of profile.sources) if (!retained.has(old.source_id)) { const res = await db.from('approved_sources').delete().eq('id', old.source_id).eq('workspace_id', workspace.id); if (res.error) throw res.error }
-      const normalized = [] as BrandProfile['sources']
+      for (const old of profile.sources) if (!retained.has(old.source_id)) { const res = await db.from('approved_sources').update({ is_active: false }).eq('id', old.source_id).eq('workspace_id', workspace.id); if (res.error) throw res.error }
       for (const s of next.sources) {
-        const values = { workspace_id: workspace.id, title: s.title, source_text: s.text, owner_label: s.owner ?? null, kind: s.kind ?? null, valid_from: s.valid_from ?? null, valid_through: s.valid_through ?? null }
-        if (existing.has(s.source_id)) { const res = await db.from('approved_sources').update(values).eq('id', s.source_id).select().single(); if (res.error) throw res.error; normalized.push({ ...s, source_id: res.data.id }) }
-        else { const res = await db.from('approved_sources').insert({ ...values, created_by: session.user.id }).select().single(); if (res.error) throw res.error; normalized.push({ ...s, source_id: res.data.id }) }
+        const values = { workspace_id: workspace.id, title: s.title, source_text: s.text, owner_label: s.owner ?? null, kind: s.kind ?? null, valid_from: s.valid_from ?? null, valid_through: s.valid_through ?? null, is_active: true }
+        if (existing.has(s.source_id)) { const res = await db.from('approved_sources').update(values).eq('id', s.source_id); if (res.error) throw res.error }
+        else { const res = await db.from('approved_sources').insert({ ...values, created_by: session.user.id }); if (res.error) throw res.error }
       }
-      setProfile({ ...next, sources: normalized }); setNotice('Workspace saved to Supabase.')
+      setProfile(await loadSourceProfile(db, workspace.id, next.name)); setNotice('Workspace saved to Supabase.')
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save workspace.') }
     finally { setBusy(false) }
   }
@@ -160,21 +194,28 @@ function CloudWorkspace({ session, member, workspace, initialSection, onSignOut,
     if (!canEditContent || !draftId || !draft.trim()) return
     setBusy(true); setError(''); setNotice('')
     try {
-      const result = await analyzeDraft(draft, profile)
-      const number = (revisions.at(-1)?.analysis ? revisions.length : 0) + 1
-      const rev = await db.from('draft_revisions').insert({ workspace_id: workspace.id, draft_id: draftId, revision_number: number, content: draft, created_by: session.user.id }).select().single()
-      if (rev.error) throw rev.error
-      const review = await db.from('reviews').insert({ workspace_id: workspace.id, draft_id: draftId, draft_revision_id: rev.data.id, overall_status: result.overall_status, final_approval_required: true, summary: result.summary, sources_snapshot: profile.sources, analysis_note: result.analysis_note ?? null, created_by: session.user.id }).select().single()
-      if (review.error) throw review.error
-      let findings = result.findings
-      if (findings.length) {
-        const inserted = await db.from('findings').insert(findings.map(f => ({ workspace_id: workspace.id, review_id: review.data.id, claim: f.claim, category: f.category, status: f.status, severity: f.severity, explanation: f.explanation, evidence: f.evidence, suggested_action: f.suggested_action, reviewer_role: f.reviewer_role, reviewer_question: f.reviewer_question ?? null, requires_human_review: f.requires_human_review }))).select()
-        if (inserted.error) throw inserted.error
-        findings = inserted.data.map((f: any, i: number) => ({ ...result.findings[i], id: f.id }))
-      }
-      const snapshot: ReviewSnapshot = { ...result, findings, _reviewedContent: draft, _reviewedProfileId: profile.id, _reviewedSources: JSON.stringify(profile.sources) }
+      const contentToReview = draft
+      await draftSaveQueue.current
+      if (draftValue.current !== contentToReview) throw new Error('The draft changed while its latest edit was being saved. Check it again.')
+
+      await draftSaveQueue.current
+      if (draftValue.current !== contentToReview) throw new Error('The draft changed during this check. Check the latest version again.')
+
+      const persisted = await reviewSubmitter.current!({
+        workspaceId: workspace.id,
+        draftId,
+        content: contentToReview,
+        sourceVersionIds: profile.sources.flatMap((source) => source.source_version_id ? [source.source_version_id] : []),
+      })
+      const result = persisted.analysis
+      const findings: Finding[] = result.findings.map((finding) => {
+        const id = persisted.finding_ids[finding.id]
+        if (!id) throw new Error('The saved review did not return an ID for every finding.')
+        return { ...finding, id }
+      })
+      const snapshot: ReviewSnapshot = { ...result, findings, analysis_origin: persisted.analysis_origin, _reviewedContent: contentToReview, _reviewedProfileId: profile.id, _reviewedSources: JSON.stringify(profile.sources) }
       setAnalysis(snapshot); setDecisions({}); setApproved(false); setManualReviewRequested(false); setCoverageAcknowledged(false); setSelectedId(findings[0]?.id ?? '')
-      const revision: DraftRevision = { id: rev.data.id, content: draft, checked_at: rev.data.created_at, analysis: snapshot }
+      const revision: DraftRevision = { id: persisted.draft_revision_id, content: contentToReview, checked_at: persisted.created_at, analysis: snapshot }
       setRevisions(old => [...old, revision]); setNotice('Review and revision saved to Supabase.')
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save the review.') }
     finally { setBusy(false) }
